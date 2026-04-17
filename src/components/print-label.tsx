@@ -71,41 +71,41 @@ export const PrintButton = ({ itemId }: PrintButtonProps) => {
         </SelectContent>
       </Select>
       <div className="flex flex-row items-center gap-4">
-      <NumberInput
-        className="w-20"
-        value={quantity}
-        onChange={(e) => {
-          const val = Number(e.target.value);
-          if (val >= 1 || e.target.value === "") {
-            setQuantity(val);
+        <NumberInput
+          className="w-20"
+          value={quantity}
+          onChange={(e) => {
+            const val = Number(e.target.value);
+            if (val >= 1 || e.target.value === "") {
+              setQuantity(val);
+            }
+            // Show toast if trying to enter value > MAX_VALUE
+            if (val > MAX_VALUE) {
+              toast.error(`Maximum quantity is ${MAX_VALUE}`);
+            }
+          }}
+          onBlur={() => {
+            if (quantity < 1 || isNaN(quantity)) {
+              setQuantity(1);
+              toast.error("Please enter a valid quantity");
+            }
+            if (quantity > MAX_VALUE) {
+              toast.error(`Maximum quantity is ${MAX_VALUE}`);
+              setQuantity(MAX_VALUE);
+            }
+          }}
+          min={1}
+        />
+        <Button
+          size="lg"
+          onClick={handlePrint}
+          disabled={
+            labelMut.isPending || !isValidQuantity || quantity > MAX_VALUE
           }
-          // Show toast if trying to enter value > MAX_VALUE
-          if (val > MAX_VALUE) {
-            toast.error(`Maximum quantity is ${MAX_VALUE}`);
-          }
-        }}
-        onBlur={() => {
-          if (quantity < 1 || isNaN(quantity)) {
-            setQuantity(1);
-            toast.error("Please enter a valid quantity");
-          }
-          if (quantity > MAX_VALUE) {
-            toast.error(`Maximum quantity is ${MAX_VALUE}`);
-            setQuantity(MAX_VALUE);
-          }
-        }}
-        min={1}
-      />
-      <Button
-        size="lg"
-        onClick={handlePrint}
-        disabled={
-          labelMut.isPending || !isValidQuantity || quantity > MAX_VALUE
-        }
-      >
-        <Printer />
-        {labelMut.isPending ? "Printing..." : "Print"}
-      </Button>
+        >
+          <Printer />
+          {labelMut.isPending ? "Printing..." : "Print"}
+        </Button>
       </div>
     </div>
   );

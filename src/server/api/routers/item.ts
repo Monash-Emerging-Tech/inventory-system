@@ -282,7 +282,9 @@ export const itemRouter = router({
       z.object({
         itemId: z.uuid(),
         quantity: z.number().positive(),
-        labelType: z.union([z.literal(0), z.literal(1), z.literal(2)]).default(0),
+        labelType: z
+          .union([z.literal(0), z.literal(1), z.literal(2)])
+          .default(0),
       }),
     )
     .mutation(async ({ input }) => {
