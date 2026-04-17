@@ -282,10 +282,11 @@ export const itemRouter = router({
       z.object({
         itemId: z.uuid(),
         quantity: z.number().positive(),
+        labelType: z.union([z.literal(0), z.literal(1), z.literal(2)]).default(0),
       }),
     )
     .mutation(async ({ input }) => {
-      const { itemId, quantity } = input;
+      const { itemId, quantity, labelType } = input;
       try {
         // Verify that the itemId is valid
         const item = await prisma.item.findUniqueOrThrow({
@@ -315,12 +316,12 @@ export const itemRouter = router({
                 serial: serial,
                 quantity: quantity,
                 itemId: itemId,
+                labelType: labelType,
               }),
               // Add 5 second time out to prevent over-printing
               signal: AbortSignal.timeout(5000),
             },
           );
-          console.log(response);
         } catch (e) {
           console.log(e);
           return {
@@ -330,6 +331,8 @@ export const itemRouter = router({
         }
         // Check HTTP status
         if (!response.ok) {
+          const body = await response.text();
+          console.log(`Printer server ${response.status} body:`, body);
           return {
             ok: false as const,
             error: `Printer server error: ${response.status}`,
