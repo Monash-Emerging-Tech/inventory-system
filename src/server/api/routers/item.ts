@@ -12,26 +12,29 @@ export const itemRouter = router({
   create: adminProcedure
     .input(
       createItemInput
-        .omit({ serial: true, stored: true, tags: true })
+        .omit({ stored: true, tags: true })
         .extend({ id: z.uuid().optional() }),
     )
     .mutation(async ({ input }) => {
-      return prisma.item.createSerial({
-        data: {
-          ...(input.id ? { id: input.id } : {}),
-          name: input.name,
-          locationId: input.locationId,
-          cost: input.cost,
-          consumable: input.consumable
-            ? {
-                create: {
-                  available: input.consumable.available,
-                  total: input.consumable.total,
-                },
-              }
-            : undefined,
-        },
-      });
+      const baseData = {
+        ...(input.id ? { id: input.id } : {}),
+        name: input.name,
+        locationId: input.locationId,
+        cost: input.cost,
+        consumable: input.consumable
+          ? {
+              create: {
+                available: input.consumable.available,
+                total: input.consumable.total,
+              },
+            }
+          : undefined,
+      };
+
+      if (input.serial) {
+        return prisma.item.create({ data: { ...baseData, serial: input.serial } });
+      }
+      return prisma.item.createSerial({ data: baseData });
     }),
 
   get: userProcedure
@@ -57,6 +60,15 @@ export const itemRouter = router({
           consumable: true,
           ItemRecords: true,
         },
+      });
+    }),
+
+  getBySerial: userProcedure
+    .input(z.object({ serial: z.string() }))
+    .query(async ({ input }) => {
+      return prisma.item.findUnique({
+        where: { serial: input.serial, deleted: false },
+        select: { id: true, name: true },
       });
     }),
 

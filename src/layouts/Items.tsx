@@ -192,19 +192,22 @@ function Items({
           },
         }
       : {
-          accessorKey: "stored",
-          header: () => "Stored",
+          id: "status",
+          header: () => "Status",
           cell: ({ row }) => {
-            const signedOut = row.getValue("stored") ? true : false;
+            const records = row.original.ItemRecords;
+            const latest = records
+              ?.slice()
+              .sort(
+                (a, b) =>
+                  new Date(b.createdAt).getTime() -
+                  new Date(a.createdAt).getTime(),
+              )[0];
+            const isOnLoan = latest?.loaned ?? false;
             return (
-              <HoverCard>
-                <HoverCardTrigger>
-                  <div className="items-center flex justify-items-center">
-                    <Checkbox checked={signedOut} />
-                  </div>
-                </HoverCardTrigger>
-                <HoverCardContent>{"Not Signed Out"}</HoverCardContent>
-              </HoverCard>
+              <Badge variant={isOnLoan ? "destructive" : "secondary"}>
+                {isOnLoan ? "On Loan" : "In Storage"}
+              </Badge>
             );
           },
         },

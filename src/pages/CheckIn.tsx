@@ -22,6 +22,8 @@ const checkinFormSchema = z.object({
 });
 
 export default function CheckIn() {
+  const utils = trpc.useUtils();
+
   const {
     data: loanedItems,
     isLoading,
@@ -29,9 +31,11 @@ export default function CheckIn() {
   } = trpc.itemRecord.getUserLoanedItems.useQuery();
 
   const checkinMut = trpc.item.checkinCart.useMutation({
-    onSuccess: (data) => {
-      toast.success("Items checked out successfully");
-      console.log("Success response:", data);
+    onSuccess: () => {
+      toast.success("Items checked in successfully");
+      form.reset({ items: [] });
+      void utils.itemRecord.getUserLoanedItems.invalidate();
+      void utils.item.list.invalidate();
     },
     onError: (error) => {
       toast.error(`Failed to check in items: ${error.message}`);

@@ -188,7 +188,7 @@ export default function ModifyItemForm({
             name="stored"
             render={({ field }) => (
               <FormItem>
-                <FormLabel htmlFor="stored">Stored?</FormLabel>
+                <FormLabel htmlFor="stored">In Storage</FormLabel>
                 <Switch
                   id="stored"
                   checked={isStored}

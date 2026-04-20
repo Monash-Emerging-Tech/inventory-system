@@ -28,6 +28,9 @@ export function AddDialog() {
   const [overrideId, setOverrideId] = useState<string | null>(null);
   const [idInput, setIdInput] = useState("");
   const [isCheckingId, setIsCheckingId] = useState(false);
+  const [overrideSerial, setOverrideSerial] = useState<string | null>(null);
+  const [serialInput, setSerialInput] = useState("");
+  const [isCheckingSerial, setIsCheckingSerial] = useState(false);
 
   const utils = trpc.useUtils();
 
@@ -46,7 +49,11 @@ export function AddDialog() {
   });
 
   const createItem = (data: z.infer<typeof createItemInput>) => {
-    mut.mutate({ ...data, ...(overrideId ? { id: overrideId } : {}) });
+    mut.mutate({
+      ...data,
+      ...(overrideId ? { id: overrideId } : {}),
+      ...(overrideSerial ? { serial: overrideSerial } : {}),
+    });
     setIsOpen(false);
   };
 
@@ -96,6 +103,31 @@ export function AddDialog() {
   const clearOverrideId = () => {
     setOverrideId(null);
     setIdInput("");
+  };
+
+  const applySerial = async () => {
+    const trimmed = serialInput.trim();
+    if (!trimmed) return;
+    setIsCheckingSerial(true);
+    try {
+      const existing = await utils.item.getBySerial.fetch({ serial: trimmed });
+      if (existing) {
+        toast.error("Serial number already exists", {
+          description: `An item named "${existing.name}" already uses this serial.`,
+        });
+        return;
+      }
+      setOverrideSerial(trimmed);
+    } catch {
+      setOverrideSerial(trimmed);
+    } finally {
+      setIsCheckingSerial(false);
+    }
+  };
+
+  const clearOverrideSerial = () => {
+    setOverrideSerial(null);
+    setSerialInput("");
   };
 
   return (
@@ -179,6 +211,53 @@ export function AddDialog() {
                 />
               </div>
             )}
+            <div className="space-y-2 pt-2 border-t">
+              <Label className="text-sm font-medium">Override Serial Number</Label>
+              <p className="text-xs text-muted-foreground">
+                Set a specific serial number for this item.
+              </p>
+              {overrideSerial ? (
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="secondary"
+                    className="max-w-full truncate font-mono text-xs"
+                  >
+                    {overrideSerial}
+                  </Badge>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0"
+                    onClick={clearOverrideSerial}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Enter serial number..."
+                    value={serialInput}
+                    onChange={(e) => setSerialInput(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={applySerial}
+                    disabled={!serialInput.trim() || isCheckingSerial}
+                  >
+                    {isCheckingSerial ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      "Apply"
+                    )}
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

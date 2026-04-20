@@ -75,6 +75,16 @@ const Assets = () => {
   const handleAddToCart = useCallback(
     (item: GetItemsOutput) => {
       if (item) {
+        if (!item.consumable) {
+          const latest = item.ItemRecords?.slice().sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          )[0];
+          if (latest?.loaned) {
+            toast.error(`${item.name} is currently on loan.`);
+            return;
+          }
+        }
         addItem({ ...item, quantity: 1 });
         toast.success("Item added to cart.");
       }

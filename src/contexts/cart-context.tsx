@@ -165,11 +165,13 @@ export function CartProvider({
   const [state, dispatch] = useReducer(cartReducer, initialState);
   const isInitialMount = useRef(true);
 
+  const utils = trpc.useUtils();
+
   const checkoutMut = trpc.item.checkoutCart.useMutation({
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast.success("Items checked out successfully");
       clearCart();
-      console.log("checkout response:", data);
+      void utils.item.list.invalidate();
     },
     onError: (error) => {
       toast.error(`Failed to check out items: ${error.message}`);
