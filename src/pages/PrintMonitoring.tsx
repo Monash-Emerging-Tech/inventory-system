@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { trpc } from "@/client/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -304,7 +305,8 @@ function PrinterDetail({
                 Nozzle
               </span>
               <span className="font-semibold text-lg">
-                {data.nozzleTemp != null ? data.nozzleTemp.toFixed(1) : "—"}°C /{" "}
+                {data.nozzleTemp != null ? data.nozzleTemp.toFixed(1) : "—"}
+                °C /{" "}
                 {data.targetNozzleTemp != null
                   ? data.targetNozzleTemp.toFixed(1)
                   : "—"}
@@ -318,7 +320,8 @@ function PrinterDetail({
                 Bed
               </span>
               <span className="font-semibold text-lg">
-                {data.bedTemp != null ? data.bedTemp.toFixed(1) : "—"}°C /{" "}
+                {data.bedTemp != null ? data.bedTemp.toFixed(1) : "—"}
+                °C /{" "}
                 {data.targetBedTemp != null
                   ? data.targetBedTemp.toFixed(1)
                   : "—"}
@@ -347,7 +350,9 @@ function PrinterDetail({
                 <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
                   <div
                     className="h-full bg-primary transition-all duration-500"
-                    style={{ width: `${data.progress ?? 0}%` }}
+                    style={{
+                      width: `${data.progress ?? 0}%`,
+                    }}
                   />
                 </div>
                 <span className="font-semibold text-sm">
@@ -512,117 +517,10 @@ function PrinterDetail({
   );
 }
 
-// ─── Webcam overview ─────────────────────────────────────────────────────────
-
-function WebcamTile({
-  printer,
-  globalTick,
-}: {
-  printer: {
-    id: string;
-    name: string;
-    type: string;
-    ipAddress: string;
-    webcamUrl: string | null;
-  };
-  globalTick: number;
-}) {
-  const [localTick, setLocalTick] = useState(0);
-  const tick = globalTick + localTick;
-
-  const cameraUrl = useMemo(
-    () => buildProxyCameraUrl(printer.id, "snapshot", tick),
-    [printer.id, tick],
-  );
-
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div
-        className="overflow-hidden rounded-lg border bg-black aspect-video w-full cursor-pointer"
-        onClick={() => setLocalTick((n) => n + 1)}
-      >
-        <img
-          src={cameraUrl}
-          alt={`${printer.name} camera`}
-          className="h-full w-full object-contain"
-        />
-      </div>
-      <p className="text-sm font-medium text-center">{printer.name}</p>
-    </div>
-  );
-}
-
-function WebcamOverview({
-  printers,
-  onClose,
-}: {
-  printers: {
-    id: string;
-    name: string;
-    type: string;
-    ipAddress: string;
-    webcamUrl: string | null;
-  }[];
-  onClose: () => void;
-}) {
-  const webcamPrinters = printers.filter((p) => p.webcamUrl);
-  const [globalTick, setGlobalTick] = useState(0);
-
-  const gridClass =
-    webcamPrinters.length === 1
-      ? "grid gap-6 max-w-3xl mx-auto w-full"
-      : webcamPrinters.length === 2
-        ? "grid gap-6 grid-cols-2"
-        : "grid gap-6 grid-cols-3";
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogContent
-        className="max-h-[96vh] h-[96vh] overflow-y-auto flex flex-col"
-        style={{ width: "calc(100vw - 2rem)", maxWidth: "calc(100vw - 2rem)" }}
-      >
-        <DialogHeader>
-          <div className="flex items-center justify-between gap-4 pr-6">
-            <DialogTitle>All Webcams</DialogTitle>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setGlobalTick((n) => n + 1)}
-            >
-              Refresh All
-            </Button>
-          </div>
-        </DialogHeader>
-
-        {webcamPrinters.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4">
-            No printers have a webcam URL configured.
-          </p>
-        ) : (
-          <div className={gridClass}>
-            {webcamPrinters.map((printer) => (
-              <WebcamTile
-                key={printer.id}
-                printer={printer}
-                globalTick={globalTick}
-              />
-            ))}
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function PrintMonitoring() {
+  const navigate = useNavigate();
   const printersQuery = trpc.print.getPrinterMonitoringOptions.useQuery();
   const activePrintsQuery = trpc.print.getActivePrints.useQuery(undefined, {
     refetchInterval: 10_000,
@@ -643,7 +541,6 @@ export default function PrintMonitoring() {
   const [selectedPrinterIp, setSelectedPrinterIp] = useState<string | null>(
     null,
   );
-  const [webcamOverviewOpen, setWebcamOverviewOpen] = useState(false);
 
   const printers = printersQuery.data ?? [];
   const totalPages = Math.max(1, Math.ceil(printers.length / PAGE_SIZE));
@@ -669,7 +566,7 @@ export default function PrintMonitoring() {
           <Button
             variant="outline"
             className="shrink-0"
-            onClick={() => setWebcamOverviewOpen(true)}
+            onClick={() => navigate("/print-cam")}
           >
             <Video className="mr-2 h-4 w-4" />
             View All Webcams
@@ -730,14 +627,6 @@ export default function PrintMonitoring() {
           printer={selectedPrinter}
           onClose={() => setSelectedPrinterIp(null)}
           printedBy={printedByMap.get(selectedPrinter.ipAddress) ?? null}
-        />
-      ) : null}
-
-      {/* Webcam overview dialog */}
-      {webcamOverviewOpen ? (
-        <WebcamOverview
-          printers={printers}
-          onClose={() => setWebcamOverviewOpen(false)}
         />
       ) : null}
     </div>

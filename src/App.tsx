@@ -18,6 +18,7 @@ import CheckIn from "@/pages/CheckIn.tsx";
 import Chat from "./pages/Chat";
 import PrintGcode from "@/pages/PrintGcode";
 import PrintMonitoring from "@/pages/PrintMonitoring";
+import PrintCam from "@/pages/PrintCam";
 import PrinterManagement from "@/pages/PrinterManagement";
 
 const App = () => {
@@ -52,6 +53,7 @@ const App = () => {
               <Route path="/checkin" element={<CheckIn />} />
               <Route path="/print" element={<PrintGcode />} />
               <Route path="/print-monitor" element={<PrintMonitoring />} />
+              <Route path="/print-cam" element={<PrintCam />} />
               <Route
                 path="/printer-management"
                 element={<PrinterManagement />}
