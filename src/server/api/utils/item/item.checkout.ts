@@ -47,7 +47,8 @@ export const itemCheckout = async (ctx: string, cart: CartItem[]) => {
       const consumableUpdates = consumables as CartObject[];
       const assetUpdates = assets as CartObject[];
       await consumableDecrementQuantity(tx, consumableUpdates);
-      await createItemRecord(ctx, tx, [...consumableUpdates, ...assetUpdates]);
+      await createItemRecord(ctx, tx, consumableUpdates, false);
+      await createItemRecord(ctx, tx, assetUpdates, true);
     });
 
     return {
@@ -70,16 +71,16 @@ const createItemRecord = async (
   ctx: string,
   tx: ExtendedTransactionClient,
   items: CartObject[],
+  loaned: boolean,
 ) => {
-  const itemRecordData = items.map((item) => ({
-    loaned: true,
-    actionByUserId: ctx,
-    itemId: item.uuid,
-    quantity: item.requestedQuantity,
-  }));
-
+  if (items.length === 0) return;
   await tx.itemRecord.createMany({
-    data: itemRecordData,
+    data: items.map((item) => ({
+      loaned,
+      actionByUserId: ctx,
+      itemId: item.uuid,
+      quantity: item.requestedQuantity,
+    })),
   });
 };
 

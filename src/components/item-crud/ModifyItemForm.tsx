@@ -26,6 +26,8 @@ import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/client/trpc";
 import { toast } from "sonner";
 import { Badge } from "../ui/badge";
+import { authClient } from "@/auth/client";
+import { Separator } from "../ui/separator";
 
 type GetItemOutput = inferProcedureOutput<AppRouter["item"]["get"]>;
 interface GetTagOutput {
@@ -53,9 +55,12 @@ export default function ModifyItemForm({
   onOpenChange,
   onSuccess,
 }: ModifyItemFormProps) {
+  const { data: session } = authClient.useSession();
+  const isAdmin = session?.user.role === "admin";
   const [isStored, setIsStored] = useState(item?.stored);
   const [tags, setTags] = useState(item?.tags);
   const [newTag, setNewTag] = useState<Tag>({ name: "", type: "" });
+  const [restockQty, setRestockQty] = useState(1);
   const mut = trpc.item.update.useMutation({
     onError: (error) => {
       toast.error(error.message || "An error occurred", {
@@ -66,6 +71,19 @@ export default function ModifyItemForm({
       toast.success("Item successfully modified!");
       onSuccess?.();
       onOpenChange(false);
+    },
+  });
+
+  const restockMut = trpc.consumable.restock.useMutation({
+    onError: (error) => {
+      toast.error(error.message || "Restock failed", {
+        description: error.data?.code ?? "Unknown error",
+      });
+    },
+    onSuccess: () => {
+      toast.success(`Restocked ${restockQty} unit(s)`);
+      onSuccess?.();
+      setRestockQty(1);
     },
   });
 
@@ -278,6 +296,41 @@ export default function ModifyItemForm({
               </FormItem>
             )}
           />
+
+          {item.consumable && isAdmin && (
+            <>
+              <Separator />
+              <div className="flex flex-col gap-3">
+                <FormLabel>Restock</FormLabel>
+                <p className="text-sm text-muted-foreground">
+                  Available: {item.consumable.available}
+                </p>
+                <div className="flex gap-3 items-end">
+                  <FormItem className="flex-1">
+                    <FormLabel>Quantity to Add</FormLabel>
+                    <NumberInput
+                      min={1}
+                      value={restockQty}
+                      onValueChange={(val) => setRestockQty(val ?? 1)}
+                      className=""
+                    />
+                  </FormItem>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={restockMut.isPending || restockQty < 1}
+                    onClick={() =>
+                      restockMut.mutate([
+                        { itemId: item.id, quantity: restockQty },
+                      ])
+                    }
+                  >
+                    {restockMut.isPending ? "Restocking..." : "Restock"}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="w-full flex justify-end gap-3 p-6">
