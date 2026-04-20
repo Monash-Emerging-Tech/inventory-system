@@ -118,6 +118,16 @@ export const dashboardRouter = router({
     .query(async ({ input }) => {
       const items = await prisma.item.findMany({
         take: input.limit,
+        where: {
+          consumable: {
+            is: null,
+          },
+          ItemRecords: {
+            some: {
+              loaned: true,
+            },
+          },
+        },
         include: {
           ItemRecords: {
             where: { loaned: true },
