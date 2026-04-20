@@ -8,12 +8,24 @@ type ConsumptionRange = "1d" | "1w" | "1m" | "3m" | "6m" | "1yr";
 const getRangeStart = (range: ConsumptionRange): Date => {
   const d = new Date();
   switch (range) {
-    case "1d": d.setDate(d.getDate() - 1); break;
-    case "1w": d.setDate(d.getDate() - 7); break;
-    case "1m": d.setMonth(d.getMonth() - 1); break;
-    case "3m": d.setMonth(d.getMonth() - 3); break;
-    case "6m": d.setMonth(d.getMonth() - 6); break;
-    case "1yr": d.setFullYear(d.getFullYear() - 1); break;
+    case "1d":
+      d.setDate(d.getDate() - 1);
+      break;
+    case "1w":
+      d.setDate(d.getDate() - 7);
+      break;
+    case "1m":
+      d.setMonth(d.getMonth() - 1);
+      break;
+    case "3m":
+      d.setMonth(d.getMonth() - 3);
+      break;
+    case "6m":
+      d.setMonth(d.getMonth() - 6);
+      break;
+    case "1yr":
+      d.setFullYear(d.getFullYear() - 1);
+      break;
   }
   return d;
 };
@@ -162,7 +174,10 @@ export const dashboardRouter = router({
         include: { item: { select: { cost: true } } },
       });
       const totalConsumed = records.reduce((sum, r) => sum + r.quantity, 0);
-      const totalCost = records.reduce((sum, r) => sum + r.quantity * r.item.cost, 0);
+      const totalCost = records.reduce(
+        (sum, r) => sum + r.quantity * r.item.cost,
+        0,
+      );
       return { totalConsumed, totalCost };
     }),
 

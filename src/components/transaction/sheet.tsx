@@ -98,7 +98,11 @@ export default function TransactionDetailsSheet({
                               <MoveUpRight size={18} />
                             )}
                             <span className="font-medium">
-                              {isLoaned ? "Loaned" : isConsumed ? "Consumed" : "Returned"}
+                              {isLoaned
+                                ? "Loaned"
+                                : isConsumed
+                                  ? "Consumed"
+                                  : "Returned"}
                             </span>
                           </div>
                         </div>

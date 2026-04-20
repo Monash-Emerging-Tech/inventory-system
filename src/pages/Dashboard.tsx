@@ -5,7 +5,15 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Clock, Star, Package, MapPin, Tag, TrendingUp, Flame } from "lucide-react";
+import {
+  Clock,
+  Star,
+  Package,
+  MapPin,
+  Tag,
+  TrendingUp,
+  Flame,
+} from "lucide-react";
 import {
   ChartBarDynamic,
   ChartAreaDynamic,
@@ -196,14 +204,18 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Units Consumed</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Units Consumed
+              </CardTitle>
               <Flame className="h-4 w-4 text-orange-400" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
                 {consumptionStats?.totalConsumed.toLocaleString() ?? "0"}
               </div>
-              <p className="text-xs text-muted-foreground">Over selected period</p>
+              <p className="text-xs text-muted-foreground">
+                Over selected period
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -215,14 +227,18 @@ export default function Dashboard() {
               <div className="text-2xl font-bold">
                 ${((consumptionStats?.totalCost ?? 0) / 100).toFixed(2)}
               </div>
-              <p className="text-xs text-muted-foreground">Over selected period</p>
+              <p className="text-xs text-muted-foreground">
+                Over selected period
+              </p>
             </CardContent>
           </Card>
         </div>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Top 10 Most Consumed</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Top 10 Most Consumed
+            </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {!topConsumed || topConsumed.length === 0 ? (
@@ -233,10 +249,18 @@ export default function Dashboard() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left px-4 py-2 font-medium text-muted-foreground w-8">#</th>
-                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Name</th>
-                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Serial</th>
-                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Used</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground w-8">
+                      #
+                    </th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">
+                      Name
+                    </th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">
+                      Serial
+                    </th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">
+                      Used
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -248,7 +272,9 @@ export default function Dashboard() {
                         i % 2 === 0 ? "bg-muted/30" : "",
                       )}
                     >
-                      <td className="px-4 py-2 text-muted-foreground">{i + 1}</td>
+                      <td className="px-4 py-2 text-muted-foreground">
+                        {i + 1}
+                      </td>
                       <td className="px-4 py-2 font-medium">{item.name}</td>
                       <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
                         {item.serial}
