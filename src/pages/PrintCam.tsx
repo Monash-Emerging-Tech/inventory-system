@@ -3,13 +3,13 @@ import { Link } from "react-router-dom";
 import { trpc } from "@/client/trpc";
 import { Button } from "@/components/ui/button";
 
-type PrinterCam = {
+interface PrinterCam {
   id: string;
   name: string;
   type: string;
   ipAddress: string;
   webcamUrl: string | null;
-};
+}
 
 const buildProxyCameraUrl = (printerId: string, snapshotTick: number): string =>
   `/api/webcam/${encodeURIComponent(printerId)}?mode=snapshot&_t=${snapshotTick}`;
