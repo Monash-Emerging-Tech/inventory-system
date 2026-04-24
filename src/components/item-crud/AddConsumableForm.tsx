@@ -1,5 +1,5 @@
 import z from "zod";
-import { Form, FormControl, FormField, FormItem, FormLabel } from "../ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "../ui/form";
 import { Input } from "../ui/input";
 import { Button } from "@/components/ui/button";
 import { useForm } from "react-hook-form";
@@ -35,7 +35,6 @@ export function AddConsumableForm({ createItem }: AddConsumableFormProps) {
   const handleLocationSelect = useCallback(
     (locationId: string | null) => {
       if (locationId) {
-        console.log("Setting location..");
         form.setValue("locationId", locationId ?? "", {
           shouldValidate: true,
           shouldDirty: true,
@@ -60,12 +59,20 @@ export function AddConsumableForm({ createItem }: AddConsumableFormProps) {
               <FormControl>
                 <Input placeholder="Consumable name" {...field} />
               </FormControl>
+              <FormMessage />
             </FormItem>
           )}
         />
 
-        <FormLabel>Location</FormLabel>
-        <CascadingLocation onLocationSelect={handleLocationSelect} />
+        <FormItem>
+          <FormLabel>Location</FormLabel>
+          <CascadingLocation onLocationSelect={handleLocationSelect} />
+          {form.formState.errors.locationId && (
+            <p className="text-sm font-medium text-destructive">
+              {form.formState.errors.locationId.message}
+            </p>
+          )}
+        </FormItem>
 
         <div className="grid grid-cols-2 gap-5">
           <FormField
@@ -92,6 +99,7 @@ export function AddConsumableForm({ createItem }: AddConsumableFormProps) {
                     className=""
                   />
                 </FormControl>
+                <FormMessage />
               </FormItem>
             )}
           />
@@ -111,6 +119,7 @@ export function AddConsumableForm({ createItem }: AddConsumableFormProps) {
                     className=""
                   />
                 </FormControl>
+                <FormMessage />
               </FormItem>
             )}
           />
