@@ -60,6 +60,8 @@ export default function ModifyItemForm({
   const [tags, setTags] = useState(item?.tags);
   const [newTag, setNewTag] = useState<Tag>({ name: "", type: "" });
   const [restockQty, setRestockQty] = useState(1);
+  const utils = trpc.useUtils();
+
   const mut = trpc.item.update.useMutation({
     onError: (error) => {
       toast.error(error.message || "An error occurred", {
@@ -67,6 +69,8 @@ export default function ModifyItemForm({
       });
     },
     onSuccess: () => {
+      void utils.item.get.invalidate({ id: item?.id ?? "" });
+      void utils.item.list.invalidate();
       toast.success("Item successfully modified!");
       onSuccess?.();
       onOpenChange(false);
@@ -277,7 +281,7 @@ export default function ModifyItemForm({
                 <FormControl>
                   <NumberInput
                     min={1}
-                    value={item?.cost}
+                    value={field.value}
                     onValueChange={field.onChange}
                     thousandSeparator=","
                     className=""

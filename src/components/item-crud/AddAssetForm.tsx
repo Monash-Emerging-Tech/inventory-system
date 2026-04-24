@@ -2,7 +2,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { useForm } from "react-hook-form";
 import z from "zod";
-import { Form, FormControl, FormField, FormItem, FormLabel } from "../ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "../ui/form";
 import { Input } from "../ui/input";
 import { NumberInput } from "../inputs/numeric-input";
 import { useCallback } from "react";
@@ -59,19 +66,27 @@ export function AddAssetForm({ createItem }: AddAssetFormProps) {
               <FormControl>
                 <Input placeholder="Asset name" {...field} />
               </FormControl>
+              <FormMessage />
             </FormItem>
           )}
         />
 
-        <FormLabel>Location</FormLabel>
-        <CascadingLocation onLocationSelect={handleLocationSelect} />
+        <FormItem>
+          <FormLabel>Location</FormLabel>
+          <CascadingLocation onLocationSelect={handleLocationSelect} />
+          {form.formState.errors.locationId && (
+            <p className="text-sm font-medium text-destructive">
+              {form.formState.errors.locationId.message}
+            </p>
+          )}
+        </FormItem>
 
         <FormField
           control={form.control}
           name="cost"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Total amount</FormLabel>
+              <FormLabel>Cost</FormLabel>
               <FormControl>
                 <NumberInput
                   min={1}
@@ -81,6 +96,7 @@ export function AddAssetForm({ createItem }: AddAssetFormProps) {
                   className=""
                 />
               </FormControl>
+              <FormMessage />
             </FormItem>
           )}
         />

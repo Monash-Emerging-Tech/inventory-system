@@ -160,7 +160,7 @@ const Consumables = () => {
         filterValue={filter}
         onFilterChange={setFilter}
         BarComponents={(table) => (
-          <TableActions table={table} onRefetch={refetch} />
+          <TableActions table={table} onRefetch={refetch} defaultConsumable />
         )}
         pageIndex={pageIndex}
         pageSize={pageSize}
