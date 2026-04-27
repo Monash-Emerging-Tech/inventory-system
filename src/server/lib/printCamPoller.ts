@@ -459,7 +459,9 @@ async function extractMjpegFrame(
     }
     return null;
   } finally {
-    await reader.cancel().catch(() => { /* empty */ });
+    await reader.cancel().catch(() => {
+      /* empty */
+    });
   }
 }
 
