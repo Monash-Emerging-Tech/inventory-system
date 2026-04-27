@@ -78,11 +78,15 @@ function WebcamTile({
   globalTick,
   tileHeight,
   paused,
+  onUnavailable,
+  onAvailable,
 }: {
   data: PrinterCamData;
   globalTick: number;
   tileHeight: number;
   paused: boolean;
+  onUnavailable?: () => void;
+  onAvailable?: () => void;
 }) {
   const [localTick, setLocalTick] = useState(0);
   const [imgError, setImgError] = useState(false);
@@ -93,11 +97,21 @@ function WebcamTile({
     setImgError(false);
   }, [tick]);
 
+  const handleImgError = useCallback(() => {
+    setImgError(true);
+    onUnavailable?.();
+  }, [onUnavailable]);
+
+  const handleImgLoad = useCallback(() => {
+    onAvailable?.();
+  }, [onAvailable]);
+
   // Null src while paused — browser aborts in-flight request, freeing the
   // connection slot for the tRPC refetch that triggered the pause.
-  const imgSrc = !paused && data.webcamUrl
-    ? buildCachedSnapshotUrl(data.printerId, tick)
-    : null;
+  const imgSrc =
+    !paused && data.webcamUrl
+      ? buildCachedSnapshotUrl(data.printerId, tick)
+      : null;
 
   const accentColor = statusAccentColor(data.state);
   const isPrinting = data.state.toUpperCase() === "PRINTING";
@@ -147,7 +161,8 @@ function WebcamTile({
           src={imgSrc}
           alt={`${data.printerName} camera`}
           className="h-full w-full object-contain"
-          onError={() => setImgError(true)}
+          onError={handleImgError}
+          onLoad={handleImgLoad}
         />
       )}
 
@@ -257,9 +272,7 @@ function WebcamTile({
           {data.bedTemp != null && (
             <span>
               <span className="text-white/40 mr-0.5">B</span>
-              <span className="text-white/75">
-                {data.bedTemp.toFixed(0)}°
-              </span>
+              <span className="text-white/75">{data.bedTemp.toFixed(0)}°</span>
               {data.targetBedTemp != null && data.targetBedTemp > 0 && (
                 <span>/{data.targetBedTemp.toFixed(0)}°</span>
               )}
@@ -297,6 +310,7 @@ export default function PrintCam() {
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
   const [globalTick, setGlobalTick] = useState(0);
   const [webcamPaused, setWebcamPaused] = useState(false);
+  const [unavailableIds, setUnavailableIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setOpen(false);
@@ -314,6 +328,23 @@ export default function PrintCam() {
     });
     observer.observe(el);
     return () => observer.disconnect();
+  }, []);
+
+  // Clear unavailable set on each tick so tiles retry after every refresh cycle
+  useEffect(() => {
+    setUnavailableIds(new Set());
+  }, [globalTick]);
+
+  const markUnavailable = useCallback((id: string) => {
+    setUnavailableIds((prev) => new Set([...prev, id]));
+  }, []);
+
+  const markAvailable = useCallback((id: string) => {
+    setUnavailableIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   }, []);
 
   const refreshMutation = trpc.print.refreshPrintCamCache.useMutation();
@@ -380,22 +411,27 @@ export default function PrintCam() {
     [dashboardQuery.data],
   );
 
+  const visiblePrinters = useMemo(
+    () => webcamPrinters.filter((p) => !unavailableIds.has(p.printerId)),
+    [webcamPrinters, unavailableIds],
+  );
+
   const isMobile = containerSize.w > 0 && containerSize.w < MIN_DESKTOP_WIDTH;
 
   const { cols, rows } = useMemo(() => {
     if (
-      webcamPrinters.length === 0 ||
+      visiblePrinters.length === 0 ||
       containerSize.w === 0 ||
       containerSize.h === 0
     ) {
       return { cols: 1, rows: 1 };
     }
     return computeLayout(
-      webcamPrinters.length,
+      visiblePrinters.length,
       containerSize.w,
       containerSize.h,
     );
-  }, [webcamPrinters.length, containerSize]);
+  }, [visiblePrinters.length, containerSize]);
 
   const tileHeight = useMemo(() => {
     if (rows === 0 || containerSize.h === 0) return 200;
@@ -464,18 +500,28 @@ export default function PrintCam() {
               alignContent: "start",
             }}
           >
-            {webcamPrinters.map((printer) => (
+            {visiblePrinters.map((printer) => (
               <WebcamTile
                 key={printer.printerId}
                 data={printer}
                 globalTick={globalTick}
                 tileHeight={tileHeight}
                 paused={webcamPaused}
+                onUnavailable={() => markUnavailable(printer.printerId)}
+                onAvailable={() => markAvailable(printer.printerId)}
               />
             ))}
           </div>
         )}
       </div>
+
+      {unavailableIds.size > 0 && (
+        <p className="shrink-0 mt-2 text-xs text-zinc-500 text-right">
+          {unavailableIds.size}{" "}
+          {unavailableIds.size === 1 ? "camera needs" : "cameras need"}{" "}
+          attention
+        </p>
+      )}
     </div>
   );
 }
