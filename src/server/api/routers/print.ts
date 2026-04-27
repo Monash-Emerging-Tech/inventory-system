@@ -24,6 +24,10 @@ import {
   sendBambuCommand,
 } from "@/server/lib/bambu";
 import { syncBambuMqttPool } from "@/server/lib/bambuMqtt";
+import {
+  getAllCachedStatuses,
+  refreshPrintCamCache,
+} from "@/server/lib/printCamPoller";
 
 const printerTypeSchema = z.enum(["PRUSA", "BAMBU"]);
 const isBlockedIp = (ip: string): boolean => {
@@ -1074,7 +1078,9 @@ export const printRouter = router({
           },
         });
         // Sync MQTT pool so the new printer gets a connection immediately
-        syncBambuMqttPool().catch(() => {});
+        syncBambuMqttPool().catch(() => {
+          /* empty */
+        });
         return result;
       } catch (error) {
         if (
@@ -1121,7 +1127,9 @@ export const printRouter = router({
         where: { id: input.printerId },
       });
       // Sync MQTT pool so the removed printer's connection is closed
-      syncBambuMqttPool().catch(() => {});
+      syncBambuMqttPool().catch(() => {
+        /* empty */
+      });
 
       return { deleted: true };
     }),
@@ -1158,7 +1166,9 @@ export const printRouter = router({
           data,
         });
         // Sync MQTT pool so changed IP/auth is picked up immediately
-        syncBambuMqttPool().catch(() => {});
+        syncBambuMqttPool().catch(() => {
+          /* empty */
+        });
         return result;
       } catch (error) {
         if (
@@ -1817,4 +1827,17 @@ export const printRouter = router({
         take,
       });
     }),
+
+  // ─── PrintCam dashboard (server-side polling cache) ──────────────────────
+
+  // Fully synchronous — reads only from in-memory cache, no DB or network calls.
+  // Attribution (startedBy) is refreshed by the background poller.
+  getPrintCamDashboard: userProcedure.query(() => {
+    return getAllCachedStatuses();
+  }),
+
+  refreshPrintCamCache: userProcedure.mutation(async () => {
+    await refreshPrintCamCache();
+    return { ok: true };
+  }),
 });
