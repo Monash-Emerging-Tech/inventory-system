@@ -920,18 +920,21 @@ export const printRouter = router({
             message: "Bambu printer missing access code or serial number.",
           });
         }
+        markUserCancelled(printer.serialNumber);
         const result = await sendBambuCommand(
           printer.ipAddress,
           printer.authToken,
           printer.serialNumber,
           "stop",
         );
-        if (!result.ok)
+        if (!result.ok) {
+          // Undo the flag — command never reached the printer
+          consumeUserCancelled(printer.serialNumber);
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: result.details,
           });
-        markUserCancelled(printer.serialNumber);
+        }
         return { success: true, message: result.details };
       }
 
