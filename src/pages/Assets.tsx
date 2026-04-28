@@ -24,7 +24,7 @@ type GetItemsOutput = inferProcedureOutput<
 >["items"][number];
 
 const Assets = () => {
-  const { addItem, itemInCart, removeItem } = useCart();
+  const { addItem, itemInCart, getItem } = useCart();
   const { "*": locationPath } = useParams();
   const locationId = locationPath?.split("/").pop();
 
@@ -109,32 +109,6 @@ const Assets = () => {
     [addItem],
   );
 
-  // Handle removing item from cart
-  const handleRemoveFromCart = useCallback(
-    (id: string) => {
-      try {
-        removeItem(id);
-        toast.success("Item removed from cart.");
-      } catch (error) {
-        console.error("Failed to remove item:", error);
-        toast.error("Failed to remove item from cart.");
-      }
-    },
-    [removeItem],
-  );
-
-  // Handle cart toggle
-  const handleCartToggle = useCallback(
-    (item: GetItemsOutput) => {
-      if (itemInCart(item.id)) {
-        handleRemoveFromCart(item.id);
-      } else {
-        handleAddToCart(item);
-      }
-    },
-    [itemInCart, handleAddToCart, handleRemoveFromCart],
-  );
-
   // Handle modify action
   const handleModify = useCallback((item: GetItemsOutput) => {
     setSelectedItem(item);
@@ -150,22 +124,31 @@ const Assets = () => {
   );
 
   // Memoize columns to prevent re-creation on every render
+  const getCartQuantity = useCallback(
+    (id: string) => getItem(id)?.quantity ?? 0,
+    [getItem],
+  );
+
   const columns = useMemo(
     () =>
       Items({
         consumable: false,
-        onAddToCart: handleCartToggle,
+        onAddToCart: handleAddToCart,
         onModify: handleModify,
         onDelete: handleDelete,
         itemInCart,
+        getCartQuantity,
         isDeleting: deleteMut.isPending,
+        isAdmin,
       }),
     [
-      handleCartToggle,
+      handleAddToCart,
       handleModify,
       handleDelete,
       itemInCart,
+      getCartQuantity,
       deleteMut.isPending,
+      isAdmin,
     ],
   );
 
@@ -226,7 +209,7 @@ const Assets = () => {
         filterValue={filter}
         onFilterChange={setFilter}
         BarComponents={(table) => (
-          <TableActions table={table} onRefetch={refetch} />
+          <TableActions table={table} onRefetch={refetch} isAdmin={isAdmin} />
         )}
         pageIndex={pageIndex}
         pageSize={pageSize}
