@@ -123,18 +123,6 @@ const Assets = () => {
     [removeItem],
   );
 
-  // Handle cart toggle
-  const handleCartToggle = useCallback(
-    (item: GetItemsOutput) => {
-      if (itemInCart(item.id)) {
-        handleRemoveFromCart(item.id);
-      } else {
-        handleAddToCart(item);
-      }
-    },
-    [itemInCart, handleAddToCart, handleRemoveFromCart],
-  );
-
   // Handle modify action
   const handleModify = useCallback((item: GetItemsOutput) => {
     setSelectedItem(item);
