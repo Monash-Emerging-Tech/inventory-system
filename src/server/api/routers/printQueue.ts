@@ -25,6 +25,7 @@ import {
   updateQueueItem,
   getInventoryAssignments,
   updateSpoolWeightUsed,
+  listInventorySpools,
   BambuddyError,
   type FilamentOverride,
 } from "@/server/lib/bambuddy";
@@ -724,6 +725,47 @@ export const printQueueRouter = router({
         { itemId, printerId, spoolId, newWeightUsed, userId: ctx.user.id },
         "Filament short override applied",
       );
+    }),
+
+  // Filament remaining tracking has been disabled by policy: prints must
+  // never be blocked by spool level. Whenever a user picks a filament
+  // colour in the queue modal, every spool of that type+colour (on every
+  // printer) is reset to 100% remaining so the start-time deficit check
+  // in bambuddy never fires.
+  overrideFilamentToFull: userProcedure
+    .input(
+      z.object({
+        filamentType: z.string().min(1),
+        colorHex: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const normalizedType = input.filamentType.toUpperCase();
+      const normalizedHex = input.colorHex
+        .replace(/^#/, "")
+        .slice(0, 6)
+        .toUpperCase();
+
+      const spools = await listInventorySpools();
+      const matches = spools.filter((s) => {
+        if (s.archived_at) return false;
+        if (s.material.toUpperCase() !== normalizedType) return false;
+        const hex = (s.rgba ?? "").replace(/^#/, "").slice(0, 6).toUpperCase();
+        return hex === normalizedHex;
+      });
+
+      await Promise.all(matches.map((s) => updateSpoolWeightUsed(s.id, 0)));
+
+      logger.info(
+        {
+          filamentType: normalizedType,
+          colorHex: normalizedHex,
+          spoolCount: matches.length,
+        },
+        "Filament remaining overridden to 100% across matching spools",
+      );
+
+      return { updatedSpoolCount: matches.length };
     }),
 
   getKioskQueue: kioskProcedure.query(async () => {
