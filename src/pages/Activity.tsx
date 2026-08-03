@@ -75,7 +75,7 @@ const ALL_ACTIONS: AuditActionType[] = [
 
 function DiffCell({ before, after }: { before: unknown; after: unknown }) {
   if (!before && !after)
-    return <span className="text-muted-foreground">—</span>;
+    return <span className="text-muted-foreground">-</span>;
 
   const renderObj = (obj: unknown) => {
     if (!obj || typeof obj !== "object") return null;
@@ -529,7 +529,7 @@ export default function Activity() {
           <h1 className="text-3xl font-bold">Activity</h1>
           <p className="text-muted-foreground">
             {isAdmin
-              ? "Full audit trail — transactions and system events."
+              ? "Full audit trail - transactions and system events."
               : "Item transaction history."}
           </p>
         </div>

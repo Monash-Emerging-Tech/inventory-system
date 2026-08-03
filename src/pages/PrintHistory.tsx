@@ -86,7 +86,7 @@ function statusColor(status: string): string {
 }
 
 function formatDuration(seconds: number | null): string {
-  if (seconds == null) return "—";
+  if (seconds == null) return "-";
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   const h = Math.floor(seconds / 3600);
@@ -95,7 +95,7 @@ function formatDuration(seconds: number | null): string {
 }
 
 function formatGrams(g: number | null): string {
-  if (g == null) return "—";
+  if (g == null) return "-";
   if (g >= 1000) return `${(g / 1000).toFixed(2)}kg`;
   return `${g.toFixed(1)}g`;
 }
@@ -232,7 +232,7 @@ export default function PrintHistory() {
         <DataTableColumnHeader column={column} title="Printer" />
       ),
       cell: ({ row }) => (
-        <span className="p-2 text-sm">{row.original.printerName ?? "—"}</span>
+        <span className="p-2 text-sm">{row.original.printerName ?? "-"}</span>
       ),
     },
     {
@@ -248,7 +248,7 @@ export default function PrintHistory() {
             size="sm"
           />
           <span className="text-sm text-muted-foreground">
-            {row.original.createdByUsername ?? "—"}
+            {row.original.createdByUsername ?? "-"}
           </span>
         </div>
       ),
@@ -280,7 +280,7 @@ export default function PrintHistory() {
               }}
             />
           )}
-          <span className="text-sm">{row.original.filamentType ?? "—"}</span>
+          <span className="text-sm">{row.original.filamentType ?? "-"}</span>
         </div>
       ),
     },
@@ -320,7 +320,7 @@ export default function PrintHistory() {
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-          Could not load print history — check BambuBuddy connection.
+          Could not load print history - check BambuBuddy connection.
         </div>
       )}
 

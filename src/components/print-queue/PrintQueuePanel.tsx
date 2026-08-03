@@ -7,7 +7,6 @@ import {
   Trash2,
   XCircle,
   RefreshCw,
-  Play,
   Square,
   Clock,
   CalendarClock,
@@ -18,10 +17,14 @@ import {
   FolderOpen,
   SkipForward,
   Wrench,
+  ChevronDown,
+  ChevronUp,
+  CheckSquare,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
+import { PrintRatingDialog } from "@/components/print/PrintRatingDialog";
 
 type QueueItem =
   inferRouterOutputs<AppRouter>["printQueue"]["listQueue"][number];
@@ -59,8 +62,6 @@ function humaniseWaitingReason(
     return "No compatible printer is currently available. The job will start automatically when one becomes free.";
   if (s.includes("filament") || s.includes("spool"))
     return "Waiting for the required filament type to be loaded on a printer. Load the correct spool and the job will start automatically.";
-  if (s.includes("manual"))
-    return "This print is held for manual start. A staff member must press the play button to begin.";
   if (s.includes("scheduled"))
     return "This print is scheduled for a future time and will start automatically when the scheduled time is reached.";
   // Return the raw reason with a prefix if none of the patterns match
@@ -120,32 +121,50 @@ interface PrinterConnectivity {
   id: number;
   name: string;
   connected: boolean;
+  awaitingPlateClear?: boolean;
 }
 
 function QueueItemRow({
   item,
   connectivity,
-  onStart,
   onStop,
   onCancel,
   onDelete,
   onResolveFilamentShort,
+  needsPlateClear,
+  onConfirmPlateClear,
 }: {
   item: QueueItem;
   connectivity: PrinterConnectivity[];
-  onStart: (id: number) => void;
   onStop: (id: number) => void;
   onCancel: (id: number) => void;
   onDelete: (id: number) => void;
   onResolveFilamentShort: (id: number) => void;
+  needsPlateClear?: boolean;
+  onConfirmPlateClear?: () => void;
 }) {
   const status = item.status?.toLowerCase() as QueueStatus;
-  const statusConfig = STATUS_CONFIG[status] ?? {
-    label: status,
-    className: "bg-slate-100 text-slate-600",
-  };
-
   const isPending = status === "pending";
+
+  // A pending job never waits on a human - if it can't proceed, its
+  // assigned printer has a real hardware problem. Surface that as an error
+  // state rather than a "held" one.
+  const hasPrinterError =
+    isPending &&
+    item.printerHmsErrors != null &&
+    item.printerHmsErrors.length > 0;
+
+  const statusConfig = hasPrinterError
+    ? {
+        label: "Error",
+        className:
+          "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400",
+      }
+    : (STATUS_CONFIG[status] ?? {
+        label: status,
+        className: "bg-slate-100 text-slate-600",
+      });
+
   const isPrinting = status === "printing";
   const isTerminal = ["completed", "failed", "cancelled", "skipped"].includes(
     status,
@@ -178,7 +197,7 @@ function QueueItemRow({
             <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
           </span>
         ) : isTerminal ? (
-          <span className="text-xs font-mono text-muted-foreground/50">—</span>
+          <span className="text-xs font-mono text-muted-foreground/50">-</span>
         ) : (
           <span className="text-xs font-mono text-muted-foreground">
             #{item.position}
@@ -198,14 +217,6 @@ function QueueItemRow({
           >
             {statusConfig.label}
           </span>
-          {item.manual_start && isPending && (
-            <Badge
-              variant="outline"
-              className="text-xs shrink-0 border-amber-400/60 text-amber-600 dark:text-amber-400"
-            >
-              Held — manual start
-            </Badge>
-          )}
           {item.timelapse && (
             <Badge variant="outline" className="text-xs shrink-0">
               timelapse
@@ -234,7 +245,7 @@ function QueueItemRow({
             <span className="flex items-center gap-1">
               <Package className="h-3 w-3" />
               {item.filament_overrides.map((o, i) => (
-                <span key={i} title={`${o.type} — ${o.color_name}`}>
+                <span key={i} title={`${o.type} - ${o.color_name}`}>
                   <ColorSwatch hex={o.color.replace("#", "")} />
                 </span>
               ))}
@@ -260,7 +271,7 @@ function QueueItemRow({
           <span className="flex items-center gap-1">
             <FolderOpen className="h-3 w-3" />
             {item.notionProjectName ??
-              (item.personalUse ? "Personal use" : "—")}
+              (item.personalUse ? "Personal use" : "-")}
           </span>
           {item.scheduled_time && (
             <span className="flex items-center gap-1">
@@ -274,12 +285,12 @@ function QueueItemRow({
           {item.been_jumped && (
             <span className="flex items-center gap-1 text-orange-500 dark:text-orange-400">
               <SkipForward className="h-3 w-3" />
-              Skipped — waiting for compatible printer
+              Skipped - waiting for compatible printer
             </span>
           )}
         </div>
 
-        {/* Deleted archive warning — only actionable on pending */}
+        {/* Deleted archive warning - only actionable on pending */}
         {item.archive_deleted && isPending && (
           <div className="flex items-start gap-1.5 text-xs text-destructive">
             <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
@@ -302,22 +313,29 @@ function QueueItemRow({
           </div>
         )}
 
-        {/* Manual start explanation */}
-        {item.manual_start &&
-          isPending &&
-          !item.waiting_reason &&
-          !item.filament_short && (
-            <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+        {/* Printer error - AMS/HMS errors on the assigned printer */}
+        {hasPrinterError && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 space-y-1">
+            <div className="flex items-start gap-1.5 text-xs text-destructive font-medium">
               <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
               <span>
-                This print is held for manual start. A staff member must press
-                the play button to begin.
+                {printerLabel} has an error - this job cannot start until it's
+                resolved.
               </span>
             </div>
-          )}
+            <ul className="space-y-0.5 pl-[18px]">
+              {item.printerHmsErrors!.map((e, i) => (
+                <li key={i} className="flex gap-1.5 text-xs text-destructive">
+                  <span className="font-mono shrink-0">{e.code}</span>
+                  <span>{e.description}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Waiting reason */}
-        {item.waiting_reason && isPending && (
+        {item.waiting_reason && isPending && !hasPrinterError && (
           <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
             <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
             <span>
@@ -366,21 +384,30 @@ function QueueItemRow({
             {item.error_message}
           </p>
         )}
+
+        {/* Build plate not cleared - this is the most recently completed
+            job on the assigned printer, surfaced above the collapsed
+            history so the plate can be confirmed cleared right here. */}
+        {needsPlateClear && (
+          <div className="flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 px-2.5 py-1.5">
+            <CheckSquare className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="flex-1 text-xs text-amber-700 dark:text-amber-400">
+              Build plate not cleared on {printerLabel} - the next job can't
+              start until it's confirmed.
+            </span>
+            <button
+              className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 transition-colors"
+              onClick={onConfirmPlateClear}
+            >
+              <CheckSquare className="h-2.5 w-2.5" />
+              Confirm cleared
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Actions */}
       <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
-        {isPending && item.manual_start && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
-            title="Start print"
-            onClick={() => onStart(item.id)}
-          >
-            <Play className="h-3.5 w-3.5" />
-          </Button>
-        )}
         {isPrinting && (
           <Button
             variant="ghost"
@@ -469,7 +496,7 @@ function FilamentShortDialogContent({
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
                   Confirm there is physically enough filament on that spool
-                  before proceeding — this will mark it as sufficient and
+                  before proceeding - this will mark it as sufficient and
                   release the job.
                 </p>
               </>
@@ -518,7 +545,7 @@ function FilamentShortDialogContent({
                         </span>
                         <span className="text-muted-foreground ml-1">
                           {slot.material}
-                          {slot.colorName ? ` — ${slot.colorName}` : ""}
+                          {slot.colorName ? ` - ${slot.colorName}` : ""}
                         </span>
                       </span>
                       <span className="text-muted-foreground shrink-0">
@@ -567,6 +594,12 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
   );
   const [filamentShortDialog, setFilamentShortDialog] =
     useState<FilamentShortDialog | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [plateClearDialog, setPlateClearDialog] = useState<{
+    bambuddyId: number;
+    printerName: string;
+    fileName?: string;
+  } | null>(null);
 
   const {
     data: queueItems,
@@ -581,6 +614,35 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
     trpc.printQueue.listPrinterConnectivity.useQuery(undefined, {
       refetchInterval: 30_000,
     });
+
+  // Filament remaining is not tracked for print blocking. If bambuddy still
+  // flags an item as filament_short (e.g. remaining drifted down again
+  // between queuing and starting), silently top up every matching spool
+  // back to 100% so bambuddy's own retry picks it up - no manual
+  // "Start anyway" click required.
+  const healedFilamentShortItemIds = useRef<Set<number>>(new Set());
+  const overrideFilamentToFullMutation =
+    trpc.printQueue.overrideFilamentToFull.useMutation();
+
+  useEffect(() => {
+    for (const item of queueItems ?? []) {
+      if (!item.filament_short) {
+        healedFilamentShortItemIds.current.delete(item.id);
+        continue;
+      }
+      if (healedFilamentShortItemIds.current.has(item.id)) continue;
+      if (!item.filament_overrides?.length) continue;
+
+      healedFilamentShortItemIds.current.add(item.id);
+      for (const override of item.filament_overrides) {
+        overrideFilamentToFullMutation.mutate({
+          filamentType: override.type,
+          colorHex: override.color,
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueItems]);
 
   const filamentShortQuery = trpc.printQueue.getFilamentShortInfo.useQuery(
     { itemId: filamentShortItemId! },
@@ -608,15 +670,8 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
 
   function invalidate() {
     void utils.printQueue.listQueue.invalidate();
+    void utils.printQueue.listPrinterConnectivity.invalidate();
   }
-
-  const startMutation = trpc.printQueue.startQueueItem.useMutation({
-    onSuccess: () => {
-      toast.success("Print started");
-      invalidate();
-    },
-    onError: (err) => toast.error(err.message),
-  });
 
   const stopMutation = trpc.printQueue.stopQueueItem.useMutation({
     onSuccess: () => {
@@ -645,7 +700,7 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
   const overrideFilamentShortMutation =
     trpc.printQueue.overrideFilamentShort.useMutation({
       onSuccess: () => {
-        toast.success("Spool overridden — print will start automatically");
+        toast.success("Spool overridden - print will start automatically");
         setFilamentShortDialog(null);
         invalidate();
       },
@@ -659,6 +714,21 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
 
   return (
     <div className="space-y-1">
+      {/* Build plate clear confirmation dialog */}
+      {plateClearDialog && (
+        <PrintRatingDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPlateClearDialog(null);
+          }}
+          bambuddyId={plateClearDialog.bambuddyId}
+          printerName={plateClearDialog.printerName}
+          fileName={plateClearDialog.fileName}
+          mode="user"
+          onCleared={() => invalidate()}
+        />
+      )}
+
       {/* Filament short confirmation dialog */}
       {filamentShortDialog && (
         <FilamentShortDialogContent
@@ -714,40 +784,130 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
         </div>
       )}
 
-      {!isLoading && queueItems && queueItems.length > 0 && (
-        <div>
-          {[...queueItems]
+      {!isLoading &&
+        queueItems &&
+        queueItems.length > 0 &&
+        (() => {
+          const active = [...queueItems]
+            .filter((i) => i.status === "printing" || i.status === "pending")
             .sort((a, b) => {
-              const rank = (s: string | null | undefined) => {
-                const st = s?.toLowerCase();
-                if (st === "printing") return 0;
-                if (st === "pending") return 1;
-                return 2;
-              };
+              const rank = (s: string | null | undefined) =>
+                s?.toLowerCase() === "printing" ? 0 : 1;
               const ra = rank(a.status);
               const rb = rank(b.status);
               if (ra !== rb) return ra - rb;
-              if (ra === 0 || ra === 1)
-                return (a.position ?? 0) - (b.position ?? 0);
-              // terminal: most recent first
-              return (b.completed_at ?? b.created_at ?? "").localeCompare(
+              return (a.position ?? 0) - (b.position ?? 0);
+            });
+
+          // Printers whose build plate hasn't been confirmed cleared block
+          // their next job - surface the job that left them in that state
+          // (their most recently completed print) above the collapsed
+          // history, un-hidden, with a button to confirm it right here.
+          const printersNeedingClear = new Set(
+            connectivity.filter((c) => c.awaitingPlateClear).map((c) => c.id),
+          );
+          const plateClearItemIds = new Set<number>();
+          for (const printerId of printersNeedingClear) {
+            const mostRecent = queueItems
+              .filter(
+                (i) => i.printer_id === printerId && i.status === "completed",
+              )
+              .sort((a, b) =>
+                (b.completed_at ?? b.created_at ?? "").localeCompare(
+                  a.completed_at ?? a.created_at ?? "",
+                ),
+              )[0];
+            if (mostRecent) plateClearItemIds.add(mostRecent.id);
+          }
+          const plateClearItems = [...queueItems]
+            .filter((i) => plateClearItemIds.has(i.id))
+            .sort((a, b) =>
+              (b.completed_at ?? b.created_at ?? "").localeCompare(
                 a.completed_at ?? a.created_at ?? "",
-              );
-            })
-            .map((item) => (
-              <QueueItemRow
-                key={item.id}
-                item={item}
-                connectivity={connectivity}
-                onStart={(id) => startMutation.mutate({ itemId: id })}
-                onStop={(id) => stopMutation.mutate({ itemId: id })}
-                onCancel={(id) => cancelMutation.mutate({ itemId: id })}
-                onDelete={(id) => deleteMutation.mutate({ itemId: id })}
-                onResolveFilamentShort={(id) => setFilamentShortItemId(id)}
-              />
-            ))}
-        </div>
-      )}
+              ),
+            );
+
+          // Completed/failed/skipped/cancelled jobs are done - auto-collapse
+          // them behind a toggle so the panel stays focused on what's live.
+          const history = [...queueItems]
+            .filter(
+              (i) =>
+                i.status !== "printing" &&
+                i.status !== "pending" &&
+                !plateClearItemIds.has(i.id),
+            )
+            .sort((a, b) =>
+              (b.completed_at ?? b.created_at ?? "").localeCompare(
+                a.completed_at ?? a.created_at ?? "",
+              ),
+            );
+
+          const rowProps = {
+            connectivity,
+            onStop: (id: number) => stopMutation.mutate({ itemId: id }),
+            onCancel: (id: number) => cancelMutation.mutate({ itemId: id }),
+            onDelete: (id: number) => deleteMutation.mutate({ itemId: id }),
+            onResolveFilamentShort: (id: number) => setFilamentShortItemId(id),
+          };
+
+          return (
+            <div>
+              {active.length === 0 &&
+                plateClearItems.length === 0 &&
+                history.length > 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    No active jobs
+                  </p>
+                )}
+              {active.map((item) => (
+                <QueueItemRow key={item.id} item={item} {...rowProps} />
+              ))}
+
+              {plateClearItems.map((item) => (
+                <QueueItemRow
+                  key={item.id}
+                  item={item}
+                  {...rowProps}
+                  needsPlateClear
+                  onConfirmPlateClear={() =>
+                    item.printer_id != null &&
+                    setPlateClearDialog({
+                      bambuddyId: item.printer_id,
+                      printerName: item.printer_name ?? `#${item.printer_id}`,
+                      fileName:
+                        item.archive_name ??
+                        item.library_file_name ??
+                        undefined,
+                    })
+                  }
+                />
+              ))}
+
+              {history.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 w-full text-xs text-muted-foreground hover:text-foreground py-2"
+                    onClick={() => setShowHistory((v) => !v)}
+                  >
+                    {showHistory ? (
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    )}
+                    {showHistory ? "Hide" : "Show"} {history.length} finished
+                    job
+                    {history.length === 1 ? "" : "s"}
+                  </button>
+                  {showHistory &&
+                    history.map((item) => (
+                      <QueueItemRow key={item.id} item={item} {...rowProps} />
+                    ))}
+                </>
+              )}
+            </div>
+          );
+        })()}
     </div>
   );
 }

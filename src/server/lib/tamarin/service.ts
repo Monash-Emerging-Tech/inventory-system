@@ -39,7 +39,7 @@ export function getTamarinService(): TamarinService | null {
 
   if (missing.length > 0) {
     console.warn(
-      `[tamarin] Service disabled — missing env vars: ${missing.join(", ")}`,
+      `[tamarin] Service disabled - missing env vars: ${missing.join(", ")}`,
     );
     _service = null;
     return null;

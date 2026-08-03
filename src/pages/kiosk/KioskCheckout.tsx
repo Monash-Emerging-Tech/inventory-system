@@ -265,7 +265,7 @@ export default function KioskCheckout() {
         {/* Camera panel */}
         <div className="md:w-1/2 flex flex-col gap-3 p-4 md:p-6 md:border-r shrink-0 md:overflow-y-auto">
           <p className="text-sm text-muted-foreground">
-            Scan QR codes — camera stays open to add multiple items
+            Scan QR codes - camera stays open to add multiple items
           </p>
           <div className="relative bg-black rounded-xl overflow-hidden w-full aspect-[4/3] md:aspect-square md:max-w-sm md:mx-auto">
             <video

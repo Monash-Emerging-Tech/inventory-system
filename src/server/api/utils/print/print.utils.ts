@@ -97,7 +97,7 @@ export const printedByNameFromFilename = (
 
 /**
  * Prefers the name encoded in the print's current filename over a
- * DB/queue-derived fallback — the filename reflects who most recently
+ * DB/queue-derived fallback - the filename reflects who most recently
  * queued/reprinted the file (see buildPrintUploadFilename call sites),
  * which can be more current than stale queue/job attribution. Falls back
  * to `fallback` when the filename doesn't match the naming scheme.

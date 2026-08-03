@@ -53,7 +53,7 @@ async function runPoll(): Promise<void> {
       const item = await getQueueItem(submission.bambuddyQueueItemId);
 
       if (!item) {
-        // Item not found — purged after completion or ID recycled.
+        // Item not found - purged after completion or ID recycled.
         // Only mark as missed after the grace period.
         const ageMs = Date.now() - submission.createdAt.getTime();
         if (ageMs >= MISS_GRACE_PERIOD_MS) {
@@ -89,7 +89,7 @@ async function runPoll(): Promise<void> {
               recorded: submission.bambuddyQueueCreatedAt,
               fetched: item.created_at,
             },
-            "Queue item ID recycled — original stats lost",
+            "Queue item ID recycled - original stats lost",
           );
           continue;
         }

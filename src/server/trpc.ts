@@ -64,7 +64,7 @@ export const publicProcedure = t.procedure;
 
 // Kiosk procedure: validates x-kiosk-token against KIOSK_SECRET env var.
 // In development/test the check is skipped for convenience.
-// In production, KIOSK_SECRET must be set — missing secret fails closed.
+// In production, KIOSK_SECRET must be set - missing secret fails closed.
 export const kioskProcedure = t.procedure.use(({ ctx, next }) => {
   const secret = process.env.KIOSK_SECRET;
   const isDev =

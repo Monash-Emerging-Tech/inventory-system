@@ -81,7 +81,7 @@ async function checkResponse(res: Response, context: string): Promise<void> {
         detail = parsed.detail;
       }
     } catch {
-      // Body wasn't JSON — fall through with detail left null.
+      // Body wasn't JSON - fall through with detail left null.
     }
     const safeBody = (body || "<empty>").replace(/\s+/g, " ").slice(0, 1024);
     throw new BambuddyError(res.status, detail, safeBody, context);
@@ -279,8 +279,8 @@ function makeMultipartStream(
   }
 
   const boundary = `FormBoundary${crypto.randomUUID().replace(/-/g, "")}`;
-  // Allowlist above guarantees filename contains only [\w.\- ()] — no quotes,
-  // no CRLF — so interpolating into a quoted-string is safe here.
+  // Allowlist above guarantees filename contains only [\w.\- ()] - no quotes,
+  // no CRLF - so interpolating into a quoted-string is safe here.
   const preamble = Buffer.from(
     `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
   );
@@ -490,7 +490,7 @@ export async function stopBambuddyCameraStream(
       signal: AbortSignal.timeout(10_000),
     },
   );
-  // Ignore errors — stream may have already stopped
+  // Ignore errors - stream may have already stopped
   res.body?.cancel().catch(() => undefined);
 }
 
@@ -860,7 +860,7 @@ export async function getBambuddyArchive(
 /**
  * Chars like ()., : trip Bambuddy's Postgres tsquery parser (syntax error in
  * tsquery) and its LIKE fallback then 500s on the aborted transaction instead
- * of recovering — strip them client-side rather than depend on a server fix.
+ * of recovering - strip them client-side rather than depend on a server fix.
  */
 const sanitizeBambuddySearchQuery = (query: string): string =>
   query.replace(/[^a-zA-Z0-9 _-]/g, " ").trim();
@@ -1147,6 +1147,26 @@ export async function updateSpoolWeightUsed(
     signal: AbortSignal.timeout(10_000),
   });
   await checkResponse(res, "update spool weight");
+}
+
+export interface SpoolUpdateInput {
+  color_name?: string | null;
+  rgba?: string | null;
+  weight_used?: number;
+}
+
+export async function updateInventorySpool(
+  spoolId: number,
+  data: SpoolUpdateInput,
+): Promise<void> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/inventory/spools/${spoolId}`, {
+    method: "PATCH",
+    headers: { ...headers(apiKey), "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+    signal: AbortSignal.timeout(10_000),
+  });
+  await checkResponse(res, "update inventory spool");
 }
 
 export function getPrintLogThumbnailUrl(entryId: number): string {

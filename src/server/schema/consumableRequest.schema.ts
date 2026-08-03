@@ -29,7 +29,7 @@ export const createRequestInput = z
       // Either pick a saved supplier OR provide a custom one (name + url)
       if (input.supplierId) return true;
       if (input.customSupplier && input.customUrl) return true;
-      // Allow neither — falls back to primary on the server
+      // Allow neither - falls back to primary on the server
       return !input.customSupplier && !input.customUrl;
     },
     {

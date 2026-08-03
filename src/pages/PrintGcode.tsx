@@ -116,7 +116,7 @@ export default function PrintGcode() {
         setUseAms(info.existingUseAms);
       }
     } catch {
-      // Parsing failed — continue with defaults, user can still print
+      // Parsing failed - continue with defaults, user can still print
     }
   }, []);
 
@@ -471,7 +471,7 @@ export default function PrintGcode() {
                   </div>
                   {!useAms && (
                     <p className="text-xs text-muted-foreground">
-                      AMS disabled — printer will use the external spool.
+                      AMS disabled - printer will use the external spool.
                     </p>
                   )}
                   {useAms && (

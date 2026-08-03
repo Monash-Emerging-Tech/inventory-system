@@ -112,7 +112,7 @@ function AssetChildRow({
       {/* serial */}
       <TableCell className="pl-10 text-sm">{item.serial}</TableCell>
 
-      {/* name — opens ItemDetails sheet */}
+      {/* name - opens ItemDetails sheet */}
       <TableCell className="pl-10">
         <Sheet>
           <SheetTrigger asChild>
@@ -163,7 +163,7 @@ function AssetChildRow({
 
       {/* location */}
       <TableCell className="pl-10 text-sm">
-        {item.location?.name ?? "—"}
+        {item.location?.name ?? "-"}
       </TableCell>
 
       {/* status */}
@@ -250,7 +250,7 @@ function GroupRow({
   );
   const locationDisplay =
     locationNames.size === 1
-      ? (group.rows[0].original.location?.name ?? "—")
+      ? (group.rows[0].original.location?.name ?? "-")
       : "Multiple Locations";
 
   return (
@@ -304,10 +304,10 @@ function GroupRow({
           </Button>
         </TableCell>
 
-        {/* status — empty for group row */}
+        {/* status - empty for group row */}
         <TableCell />
 
-        {/* actions — empty for group row */}
+        {/* actions - empty for group row */}
         <TableCell />
       </TableRow>
 

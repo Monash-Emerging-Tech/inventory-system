@@ -33,7 +33,7 @@ const AFTER_HOURS_REASONS = [
 const DISCORD_AFTER_HOURS_CHANNEL =
   process.env.DISCORD_AFTER_HOURS_CHANNEL ?? "after-hours-log";
 
-// Alphanumeric student IDs only — prevents path traversal in external API calls
+// Alphanumeric student IDs only - prevents path traversal in external API calls
 const studentIdSchema = z.string().regex(/^[A-Za-z0-9]{1,20}$/);
 
 async function resolveUser(studentId: string) {
@@ -328,7 +328,7 @@ export const kioskRouter = router({
       }
 
       // Fetch candidate itemIds where this user has ever had a loaned=true record
-      // Consumables are consumed on checkout and cannot be returned — exclude them.
+      // Consumables are consumed on checkout and cannot be returned - exclude them.
       const candidates = await prisma.itemRecord.findMany({
         where: {
           actionByUserId: user.id,

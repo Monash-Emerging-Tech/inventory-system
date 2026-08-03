@@ -262,7 +262,7 @@ export function CartProvider({
     if (cartItem.consumable) {
       // Consumables go through the request flow, not checkout.
       toast.error(
-        `${cartItem.name} is a consumable — use "Request More" instead.`,
+        `${cartItem.name} is a consumable - use "Request More" instead.`,
       );
       return false;
     }

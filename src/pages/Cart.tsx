@@ -68,7 +68,7 @@ export default function Cart() {
     checkout();
   };
 
-  // Each scan fetches independently — avoids race where scan B replaces scan A mid-flight
+  // Each scan fetches independently - avoids race where scan B replaces scan A mid-flight
   const handleQRScan = async (qrData: string) => {
     let data;
     try {
@@ -160,7 +160,7 @@ export default function Cart() {
             <QRScanner
               onScan={handleQRScan}
               title="Scan Item QR Codes"
-              description="Scan QR codes to add items — camera stays open for multiple scans"
+              description="Scan QR codes to add items - camera stays open for multiple scans"
               multiScan
             />
             {items.length > 0 && (

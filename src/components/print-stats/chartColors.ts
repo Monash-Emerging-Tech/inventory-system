@@ -1,4 +1,4 @@
-// Hardcoded palette — CSS variables don't resolve inside recharts SVG elements
+// Hardcoded palette - CSS variables don't resolve inside recharts SVG elements
 export const CHART_PALETTE = [
   "#3b82f6", // blue-500
   "#10b981", // emerald-500
