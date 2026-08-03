@@ -25,7 +25,10 @@ import {
   updateQueueItem,
   getInventoryAssignments,
   updateSpoolWeightUsed,
+  updateInventorySpool,
   listInventorySpools,
+  createInventorySpool,
+  assignSpoolToSlot,
   BambuddyError,
   type FilamentOverride,
   type InventorySpool,
@@ -809,6 +812,77 @@ export const printQueueRouter = router({
       );
 
       return { updatedSpoolCount: matches.length };
+    }),
+
+  // Lets a user attach/change a human-readable colour name (and optionally
+  // correct the hex) for a filament tray. Updates the matching inventory
+  // spool if one exists for that type+colour; otherwise creates one and
+  // assigns it to the specific AMS tray the user was configuring, since an
+  // "Unknown" tray has no spool record to update.
+  nameFilamentColor: userProcedure
+    .input(
+      z.object({
+        printerId: z.number().int().positive(),
+        amsId: z.number().int(),
+        trayId: z.number().int(),
+        filamentType: z.string().min(1),
+        previousHex: z.string().nullable(),
+        colorHex: z.string().min(1),
+        colorName: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const normalizedType = input.filamentType.toUpperCase();
+      const normalizedNewHex = normalizeHex(input.colorHex);
+      const normalizedPrevHex = input.previousHex
+        ? normalizeHex(input.previousHex)
+        : null;
+
+      const spools = await listInventorySpools();
+      const existing = normalizedPrevHex
+        ? spools.find(
+            (s) =>
+              !s.archived_at &&
+              s.material.toUpperCase() === normalizedType &&
+              normalizeHex(s.rgba) === normalizedPrevHex,
+          )
+        : undefined;
+
+      if (existing) {
+        await updateInventorySpool(existing.id, {
+          color_name: input.colorName,
+          rgba: normalizedNewHex,
+          weight_used: 0,
+        });
+      } else {
+        const created = await createInventorySpool({
+          material: normalizedType,
+          color_name: input.colorName,
+          rgba: normalizedNewHex,
+          weight_used: 0,
+        });
+        await assignSpoolToSlot({
+          spoolId: created.id,
+          printerId: input.printerId,
+          amsId: input.amsId,
+          trayId: input.trayId,
+        });
+      }
+
+      logger.info(
+        {
+          printerId: input.printerId,
+          amsId: input.amsId,
+          trayId: input.trayId,
+          filamentType: normalizedType,
+          colorHex: normalizedNewHex,
+          colorName: input.colorName,
+          matchedExistingSpool: Boolean(existing),
+        },
+        "Filament colour named",
+      );
+
+      return { ok: true };
     }),
 
   getKioskQueue: kioskProcedure.query(async () => {

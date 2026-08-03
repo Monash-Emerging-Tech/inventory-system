@@ -1149,6 +1149,26 @@ export async function updateSpoolWeightUsed(
   await checkResponse(res, "update spool weight");
 }
 
+export interface SpoolUpdateInput {
+  color_name?: string | null;
+  rgba?: string | null;
+  weight_used?: number;
+}
+
+export async function updateInventorySpool(
+  spoolId: number,
+  data: SpoolUpdateInput,
+): Promise<void> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/inventory/spools/${spoolId}`, {
+    method: "PATCH",
+    headers: { ...headers(apiKey), "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+    signal: AbortSignal.timeout(10_000),
+  });
+  await checkResponse(res, "update inventory spool");
+}
+
 export function getPrintLogThumbnailUrl(entryId: number): string {
   const { endpoint, apiKey } = getConfig();
   return `${endpoint}/api/v1/print-log/${entryId}/thumbnail?api_key=${encodeURIComponent(apiKey)}`;
