@@ -2712,7 +2712,8 @@ export const printRouter = router({
           : [];
       const colorNameByKey = new Map<string, string | null>();
       for (const a of assignments) {
-        if (a.spool) colorNameByKey.set(`${a.ams_id}:${a.tray_id}`, a.spool.color_name);
+        if (a.spool)
+          colorNameByKey.set(`${a.ams_id}:${a.tray_id}`, a.spool.color_name);
       }
       const local = findLocal(bambuPrinter);
       const localId = local?.id ?? `bambuddy-${bambuPrinter.id}`;

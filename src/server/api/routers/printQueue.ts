@@ -349,7 +349,8 @@ export const printQueueRouter = router({
           submissions.map((s) => [s.bambuddyQueueItemId, s]),
         );
 
-        const hmsErrorsByPrinterId = await computePendingPrinterHmsErrors(items);
+        const hmsErrorsByPrinterId =
+          await computePendingPrinterHmsErrors(items);
 
         return items.map((item) => {
           const sub = subByItemId.get(item.id);
@@ -977,8 +978,7 @@ export const printQueueRouter = router({
           printer_id: item.printer_id,
           printer_name: item.printer_name,
           printerHmsErrors:
-            item.status?.toLowerCase() === "pending" &&
-            item.printer_id != null
+            item.status?.toLowerCase() === "pending" && item.printer_id != null
               ? (hmsErrorsByPrinterId.get(item.printer_id) ?? null)
               : null,
         };
