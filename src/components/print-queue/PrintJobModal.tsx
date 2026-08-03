@@ -1161,7 +1161,13 @@ export function PrintJobModal({
                                               .tray_id_name
                                           : (opt as (typeof printerColors)[0])
                                               .trayIdName;
-                                        const name = subBrands ?? idName;
+                                        const spoolColorName = isMultiPrinter
+                                          ? (opt as (typeof multiColors)[0])
+                                              .spool_color_name
+                                          : (opt as (typeof printerColors)[0])
+                                              .colorName;
+                                        const name =
+                                          spoolColorName ?? subBrands ?? idName;
 
                                         const normalHex = hex
                                           .slice(0, 6)
@@ -1197,14 +1203,11 @@ export function PrintJobModal({
                                             )}
                                             <span className="flex-1 text-left min-w-0 overflow-hidden">
                                               <span className="block truncate">
-                                                {subBrands ??
-                                                  (idName
-                                                    ? `${idName} - ${type}`
-                                                    : type)}
+                                                {name ?? type}
                                               </span>
-                                              {subBrands && idName && (
-                                                <span className="block truncate text-xs opacity-50 font-mono">
-                                                  {idName}
+                                              {name && (
+                                                <span className="block truncate text-xs opacity-50">
+                                                  {type}
                                                 </span>
                                               )}
                                             </span>

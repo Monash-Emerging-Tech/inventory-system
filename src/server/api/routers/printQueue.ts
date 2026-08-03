@@ -28,6 +28,7 @@ import {
   listInventorySpools,
   BambuddyError,
   type FilamentOverride,
+  type InventorySpool,
 } from "@/server/lib/bambuddy";
 import {
   buildAmsSlots,
@@ -43,6 +44,30 @@ import {
 } from "@/server/api/utils/print/print.utils";
 
 const logger = rootLogger.child({ module: "router:printQueue" });
+
+function normalizeHex(hex: string | null | undefined): string {
+  return (hex ?? "").replace(/^#/, "").slice(0, 6).toUpperCase();
+}
+
+/** Look up the human-readable colour name (e.g. "Bambu Black") for a
+ *  type+colour pair from inventory spool records — AMS tray data alone
+ *  rarely carries a readable name. */
+function findSpoolColorName(
+  spools: InventorySpool[],
+  type: string | null,
+  hex: string | null,
+): string | null {
+  if (!type || !hex) return null;
+  const normalizedType = type.toUpperCase();
+  const normalizedHex = normalizeHex(hex);
+  const match = spools.find(
+    (s) =>
+      !s.archived_at &&
+      s.material.toUpperCase() === normalizedType &&
+      normalizeHex(s.rgba) === normalizedHex,
+  );
+  return match?.color_name ?? null;
+}
 
 const filamentConstraintSchema = z.object({
   slotIndex: z.number().int().min(0),
@@ -139,10 +164,17 @@ export const printQueueRouter = router({
     .input(z.object({ printerId: z.number().int().positive() }))
     .query(async ({ input }) => {
       try {
-        const status = await getBambuddyPrinterStatus(input.printerId);
+        const [status, spools] = await Promise.all([
+          getBambuddyPrinterStatus(input.printerId),
+          listInventorySpools(),
+        ]);
+        const slots = buildAmsSlots(status.ams).map((slot) => ({
+          ...slot,
+          colorName: findSpoolColorName(spools, slot.trayType, slot.trayColor),
+        }));
         return {
           amsExists: status.ams_exists,
-          slots: buildAmsSlots(status.ams),
+          slots,
         };
       } catch (err) {
         logger.error(
@@ -162,7 +194,14 @@ export const printQueueRouter = router({
     )
     .query(async ({ input }) => {
       try {
-        return await getAvailableFilamentsForModel(input.model, input.location);
+        const [slots, spools] = await Promise.all([
+          getAvailableFilamentsForModel(input.model, input.location),
+          listInventorySpools(),
+        ]);
+        return slots.map((s) => ({
+          ...s,
+          spool_color_name: findSpoolColorName(spools, s.tray_type, s.tray_color),
+        }));
       } catch (err) {
         logger.error({ err }, "Failed to get available filaments");
         throw new TRPCError({
