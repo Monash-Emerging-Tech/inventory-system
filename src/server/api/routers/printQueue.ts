@@ -67,6 +67,37 @@ function assignmentKey(
   return `${printerId}:${amsId}:${trayId}`;
 }
 
+// A pending job never waits on a human - if it can't proceed it's because
+// its assigned printer has a real problem. Surface that printer's AMS/HMS
+// errors directly on the row instead of a "held" state, so it's clear the
+// job is blocked by hardware, not policy. Bambuddy's raw status casing
+// isn't guaranteed lowercase (the UI itself lowercases before comparing) -
+// normalise here too.
+async function computePendingPrinterHmsErrors(
+  items: { status: string | null; printer_id: number | null }[],
+): Promise<Map<number, HmsErrorInfo[]>> {
+  const pendingPrinterIds = [
+    ...new Set(
+      items
+        .filter(
+          (i) => i.status?.toLowerCase() === "pending" && i.printer_id != null,
+        )
+        .map((i) => i.printer_id!),
+    ),
+  ];
+  const printerStatuses = await Promise.allSettled(
+    pendingPrinterIds.map((id) => getBambuddyPrinterStatus(id)),
+  );
+  const hmsErrorsByPrinterId = new Map<number, HmsErrorInfo[]>();
+  pendingPrinterIds.forEach((id, i) => {
+    const result = printerStatuses[i];
+    if (result.status !== "fulfilled") return;
+    const errors = describeHmsErrors(result.value.hms_errors);
+    if (errors.length > 0) hmsErrorsByPrinterId.set(id, errors);
+  });
+  return hmsErrorsByPrinterId;
+}
+
 function buildAssignmentColorNameMap(
   assignments: BambuddySpoolAssignment[],
 ): Map<string, string | null> {
@@ -318,32 +349,7 @@ export const printQueueRouter = router({
           submissions.map((s) => [s.bambuddyQueueItemId, s]),
         );
 
-        // A pending job never waits on a human - if it can't proceed it's
-        // because its assigned printer has a real problem. Surface that
-        // printer's AMS/HMS errors directly on the row instead of a "held"
-        // state, so it's clear the job is blocked by hardware, not policy.
-        // Bambuddy's raw status casing isn't guaranteed lowercase (the UI
-        // itself lowercases before comparing) - normalise here too.
-        const pendingPrinterIds = [
-          ...new Set(
-            items
-              .filter(
-                (i) =>
-                  i.status?.toLowerCase() === "pending" && i.printer_id != null,
-              )
-              .map((i) => i.printer_id!),
-          ),
-        ];
-        const printerStatuses = await Promise.allSettled(
-          pendingPrinterIds.map((id) => getBambuddyPrinterStatus(id)),
-        );
-        const hmsErrorsByPrinterId = new Map<number, HmsErrorInfo[]>();
-        pendingPrinterIds.forEach((id, i) => {
-          const result = printerStatuses[i];
-          if (result.status !== "fulfilled") return;
-          const errors = describeHmsErrors(result.value.hms_errors);
-          if (errors.length > 0) hmsErrorsByPrinterId.set(id, errors);
-        });
+        const hmsErrorsByPrinterId = await computePendingPrinterHmsErrors(items);
 
         return items.map((item) => {
           const sub = subByItemId.get(item.id);
@@ -928,13 +934,14 @@ export const printQueueRouter = router({
       return { ok: true };
     }),
 
+  // Returns the full queue (not just active jobs) so the kiosk can mirror
+  // the print queue page's design: pending/printing up top, printer
+  // AMS/HMS errors surfaced on stuck pending jobs, and finished jobs
+  // available for a collapsed history section rather than dropped entirely.
   getKioskQueue: kioskProcedure.query(async () => {
     try {
       const items = await listQueue();
-      const activeItems = items.filter(
-        (i) => i.status === "pending" || i.status === "printing",
-      );
-      const itemIds = activeItems.map((i) => i.id);
+      const itemIds = items.map((i) => i.id);
       const submissions = await prisma.printQueueSubmission.findMany({
         where: { bambuddyQueueItemId: { in: itemIds } },
         select: {
@@ -947,7 +954,10 @@ export const printQueueRouter = router({
       const subByItemId = new Map(
         submissions.map((s) => [s.bambuddyQueueItemId, s]),
       );
-      return activeItems.map((item) => {
+
+      const hmsErrorsByPrinterId = await computePendingPrinterHmsErrors(items);
+
+      return items.map((item) => {
         const sub = subByItemId.get(item.id);
         const filenameName = printedByNameFromFilename(
           item.archive_name ?? item.library_file_name,
@@ -963,6 +973,14 @@ export const printQueueRouter = router({
             ? "Personal"
             : (sub?.notionProjectName ?? null),
           created_at: item.created_at,
+          completed_at: item.completed_at,
+          printer_id: item.printer_id,
+          printer_name: item.printer_name,
+          printerHmsErrors:
+            item.status?.toLowerCase() === "pending" &&
+            item.printer_id != null
+              ? (hmsErrorsByPrinterId.get(item.printer_id) ?? null)
+              : null,
         };
       });
     } catch (err) {

@@ -64,6 +64,10 @@ import {
   prusaStatusResponseSchema,
   prusaJobResponseSchema,
 } from "@/server/lib/prusaSchemas";
+import {
+  buildAmsSlots,
+  buildExternalSlots,
+} from "@/server/api/utils/print/amsMatching";
 
 const printerTypeSchema = z.enum(["PRUSA", "BAMBU"]);
 
@@ -2680,6 +2684,13 @@ export const printRouter = router({
       bambuddyPrinters.map((p) => getBambuddyPrinterStatus(p.id)),
     );
 
+    // Same assignment-based colour resolution used on Printer Monitoring and
+    // the print queue's filament picker — never the raw AMS metadata, which
+    // just echoes the material for unlabelled trays.
+    const assignmentResults = await Promise.allSettled(
+      bambuddyPrinters.map((p) => getInventoryAssignments(p.id)),
+    );
+
     const localBySerial = new Map<string, (typeof localPrinters)[number]>();
     const localByIp = new Map<string, (typeof localPrinters)[number]>();
     for (const p of localPrinters) {
@@ -2694,8 +2705,25 @@ export const printRouter = router({
     const bambuResults = bambuddyPrinters.map((bambuPrinter, i) => {
       const settled = bambuStatusResults[i];
       const s = settled?.status === "fulfilled" ? settled.value : null;
+      const assignmentsSettled = assignmentResults[i];
+      const assignments =
+        assignmentsSettled?.status === "fulfilled"
+          ? assignmentsSettled.value
+          : [];
+      const colorNameByKey = new Map<string, string | null>();
+      for (const a of assignments) {
+        if (a.spool) colorNameByKey.set(`${a.ams_id}:${a.tray_id}`, a.spool.color_name);
+      }
       const local = findLocal(bambuPrinter);
       const localId = local?.id ?? `bambuddy-${bambuPrinter.id}`;
+
+      let amsSlots: {
+        amsId: number;
+        trayId: number;
+        type: string | null;
+        colorHex: string | null;
+        colorName: string | null;
+      }[] = [];
 
       let state = "UNKNOWN";
       let stateMessage = "Unknown";
@@ -2752,6 +2780,21 @@ export const printRouter = router({
         timeRemaining = s.remaining_time ?? null;
         fileName = s.subtask_name ?? s.current_print ?? s.gcode_file ?? null;
         awaitingPlateClear = s.awaiting_plate_clear ?? false;
+
+        const rawSlots = [
+          ...buildAmsSlots(s.ams),
+          ...buildExternalSlots(s.vt_tray),
+        ];
+        amsSlots = rawSlots
+          .filter((slot) => slot.trayType != null)
+          .map((slot) => ({
+            amsId: slot.amsId,
+            trayId: slot.trayId,
+            type: slot.trayType,
+            colorHex: slot.trayColor,
+            colorName:
+              colorNameByKey.get(`${slot.amsId}:${slot.trayId}`) ?? null,
+          }));
       }
 
       return {
@@ -2763,6 +2806,7 @@ export const printRouter = router({
         state,
         stateMessage,
         hmsErrors,
+        amsSlots,
         progress,
         timeRemaining,
         fileName,
@@ -2839,6 +2883,13 @@ export const printRouter = router({
           state,
           stateMessage,
           hmsErrors: [] as { code: string; description: string }[],
+          amsSlots: [] as {
+            amsId: number;
+            trayId: number;
+            type: string | null;
+            colorHex: string | null;
+            colorName: string | null;
+          }[],
           progress,
           timeRemaining,
           fileName,

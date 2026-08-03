@@ -21,6 +21,8 @@ import {
   WifiOff,
   Zap,
   CheckSquare,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -29,8 +31,19 @@ import type { AppRouter } from "@/server/api/routers/_app";
 
 type KioskPrinter =
   inferRouterOutputs<AppRouter>["print"]["getKioskPrinterStatuses"][number];
+type KioskQueueItem =
+  inferRouterOutputs<AppRouter>["printQueue"]["getKioskQueue"][number];
 
 const REFETCH_INTERVAL_MS = 15_000;
+
+function ColorSwatch({ hex }: { hex: string | null }) {
+  return (
+    <span
+      className="inline-block w-2.5 h-2.5 rounded-sm border border-border/50 shrink-0"
+      style={{ backgroundColor: hex ? `#${hex.slice(0, 6)}` : "transparent" }}
+    />
+  );
+}
 
 function StateIcon({ state }: { state: string }) {
   const s = state.toUpperCase();
@@ -114,9 +127,81 @@ function formatMinutes(mins: number): string {
 
 function queueStatusBadge(
   status: string,
+  hasError: boolean,
 ): "default" | "secondary" | "destructive" | "outline" {
+  if (hasError) return "destructive";
   if (status === "printing") return "secondary";
   return "outline";
+}
+
+function QueueRow({ item, idx }: { item: KioskQueueItem; idx: number }) {
+  const hasError =
+    item.status === "pending" &&
+    item.printerHmsErrors != null &&
+    item.printerHmsErrors.length > 0;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -16 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 16, height: 0 }}
+      transition={{ duration: 0.25, delay: idx * 0.05 }}
+      className={`px-4 py-3 space-y-1.5 ${idx !== 0 ? "border-t" : ""}`}
+    >
+      <div className="flex items-center gap-4">
+        <span className="text-sm font-mono text-muted-foreground w-5 shrink-0 text-center">
+          {item.position ?? idx + 1}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">
+            {item.file_name ?? "Unnamed file"}
+          </p>
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            {item.printer_name && (
+              <p className="text-xs text-muted-foreground truncate">
+                {item.printer_name}
+              </p>
+            )}
+            {item.printer_name && item.submitted_by && (
+              <span className="text-xs text-muted-foreground">·</span>
+            )}
+            {item.submitted_by && (
+              <p className="text-xs text-muted-foreground truncate">
+                {item.submitted_by}
+              </p>
+            )}
+            {item.submitted_by && item.project && (
+              <span className="text-xs text-muted-foreground">·</span>
+            )}
+            {item.project && (
+              <p className="text-xs text-muted-foreground truncate">
+                {item.project}
+              </p>
+            )}
+          </div>
+        </div>
+        <Badge
+          variant={queueStatusBadge(item.status ?? "", hasError)}
+          className="shrink-0 capitalize text-xs"
+        >
+          {hasError ? "Error" : item.status}
+        </Badge>
+      </div>
+
+      {/* Printer AMS/HMS errors — same as the print queue page: a pending
+          job never waits on a human, so if it's stuck its printer has a
+          real problem. */}
+      {hasError && (
+        <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 space-y-1 ml-9">
+          {item.printerHmsErrors!.map((e) => (
+            <p key={e.code} className="text-xs text-destructive leading-snug">
+              {e.description}
+            </p>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
 }
 
 function PrinterCard({
@@ -129,7 +214,6 @@ function PrinterCard({
   const utils = trpc.useUtils();
   const [ratingDialogOpen, setRatingDialogOpen] = useState(false);
 
-  const isFinished = printer.state.toUpperCase() === "FINISHED";
   const isAttention = printer.state.toUpperCase() === "ATTENTION";
 
   return (
@@ -214,8 +298,33 @@ function PrinterCard({
             </motion.div>
           )}
 
+          {/* AMS filament — same type + colour name (or Unknown) logic as
+              Printer Monitoring and the print queue's filament picker */}
+          {printer.amsSlots.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {printer.amsSlots.map((slot) => (
+                <span
+                  key={`${slot.amsId}:${slot.trayId}`}
+                  className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-[10px]"
+                >
+                  <ColorSwatch hex={slot.colorHex} />
+                  <span className="font-medium">{slot.type}</span>
+                  <span
+                    className={
+                      slot.colorName
+                        ? "text-muted-foreground"
+                        : "text-amber-600 dark:text-amber-400 font-medium"
+                    }
+                  >
+                    {slot.colorName ?? "Unknown"}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* Clear build plate */}
-          {isFinished && printer.bambuddyId != null && (
+          {printer.awaitingPlateClear && printer.bambuddyId != null && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -249,6 +358,7 @@ function PrinterCard({
               description: "Next job in queue will start automatically.",
             });
             void utils.print.getKioskPrinterStatuses.invalidate();
+            void utils.printQueue.getKioskQueue.invalidate();
           }}
         />
       )}
@@ -272,7 +382,20 @@ export default function KioskPrintStatus() {
     refetchInterval: REFETCH_INTERVAL_MS,
   });
 
+  const [showHistory, setShowHistory] = useState(false);
+
   if (!session) return null;
+
+  const activeItems = (queueQuery.data ?? []).filter(
+    (i) => i.status === "pending" || i.status === "printing",
+  );
+  const historyItems = [...(queueQuery.data ?? [])]
+    .filter((i) => i.status !== "pending" && i.status !== "printing")
+    .sort((a, b) =>
+      (b.completed_at ?? b.created_at ?? "").localeCompare(
+        a.completed_at ?? a.created_at ?? "",
+      ),
+    );
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -360,53 +483,49 @@ export default function KioskPrintStatus() {
               Queue is empty - no pending or active jobs.
             </p>
           ) : (
-            <div className="rounded-lg border overflow-hidden">
-              <AnimatePresence initial={false}>
-                {queueQuery.data.map((item, idx) => (
-                  <motion.div
-                    key={item.id}
-                    initial={{ opacity: 0, x: -16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 16, height: 0 }}
-                    transition={{ duration: 0.25, delay: idx * 0.05 }}
-                    className={`flex items-center gap-4 px-4 py-3 ${
-                      idx !== 0 ? "border-t" : ""
-                    }`}
+            <div className="space-y-2">
+              {activeItems.length === 0 && (
+                <p className="text-sm text-muted-foreground py-2">
+                  No active jobs.
+                </p>
+              )}
+              {activeItems.length > 0 && (
+                <div className="rounded-lg border overflow-hidden">
+                  <AnimatePresence initial={false}>
+                    {activeItems.map((item, idx) => (
+                      <QueueRow key={item.id} item={item} idx={idx} />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
+
+              {historyItems.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 w-full text-xs text-muted-foreground hover:text-foreground py-2"
+                    onClick={() => setShowHistory((v) => !v)}
                   >
-                    <span className="text-sm font-mono text-muted-foreground w-5 shrink-0 text-center">
-                      {item.position ?? idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {item.file_name ?? "Unnamed file"}
-                      </p>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        {item.submitted_by && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {item.submitted_by}
-                          </p>
-                        )}
-                        {item.submitted_by && item.project && (
-                          <span className="text-xs text-muted-foreground">
-                            ·
-                          </span>
-                        )}
-                        {item.project && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {item.project}
-                          </p>
-                        )}
-                      </div>
+                    {showHistory ? (
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    )}
+                    {showHistory ? "Hide" : "Show"} {historyItems.length}{" "}
+                    finished job
+                    {historyItems.length === 1 ? "" : "s"}
+                  </button>
+                  {showHistory && (
+                    <div className="rounded-lg border overflow-hidden">
+                      <AnimatePresence initial={false}>
+                        {historyItems.map((item, idx) => (
+                          <QueueRow key={item.id} item={item} idx={idx} />
+                        ))}
+                      </AnimatePresence>
                     </div>
-                    <Badge
-                      variant={queueStatusBadge(item.status ?? "")}
-                      className="shrink-0 capitalize text-xs"
-                    >
-                      {item.status}
-                    </Badge>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+                  )}
+                </>
+              )}
             </div>
           )}
         </motion.section>
