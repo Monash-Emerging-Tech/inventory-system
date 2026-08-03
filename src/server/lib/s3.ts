@@ -74,7 +74,7 @@ export async function deleteFile(key: string): Promise<void> {
 
 /**
  * Generate a presigned GET URL for direct browser download.
- * Synchronous — uses local HMAC signing, no network request.
+ * Synchronous - uses local HMAC signing, no network request.
  */
 export function presignDownload(key: string, expiresIn = 3600): string {
   return s3.presign(key, { method: "GET", expiresIn });

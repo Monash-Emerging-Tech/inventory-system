@@ -305,7 +305,7 @@ export default function PrinterManagement() {
           <div>
             <h1 className="text-3xl font-bold">Printer Management</h1>
             <p className="text-muted-foreground">
-              Manage Prusa printers. Bambu printers are read-only — configure
+              Manage Prusa printers. Bambu printers are read-only - configure
               them in BamBuddy.
             </p>
           </div>
@@ -337,7 +337,7 @@ export default function PrinterManagement() {
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                     <span className="text-muted-foreground">Auth Token</span>
                     <span className="truncate">
-                      {printer.authToken ? "••••••••" : "—"}
+                      {printer.authToken ? "••••••••" : "-"}
                     </span>
                     <span className="text-muted-foreground">Webcam</span>
                     <span className="truncate">
@@ -351,7 +351,7 @@ export default function PrinterManagement() {
                           Open
                         </a>
                       ) : (
-                        "—"
+                        "-"
                       )}
                     </span>
                   </div>
@@ -442,11 +442,11 @@ export default function PrinterManagement() {
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                     <span className="text-muted-foreground">Serial</span>
                     <span className="truncate font-mono text-xs">
-                      {printer.serialNumber || "—"}
+                      {printer.serialNumber || "-"}
                     </span>
                     <span className="text-muted-foreground">State</span>
                     <span className="truncate capitalize">
-                      {printer.state ?? "—"}
+                      {printer.state ?? "-"}
                     </span>
                     {printer.progress != null && (
                       <>
@@ -464,7 +464,7 @@ export default function PrinterManagement() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground pt-1 border-t">
-                    Read-only — configure in BamBuddy
+                    Read-only - configure in BamBuddy
                   </p>
                 </CardContent>
               </Card>

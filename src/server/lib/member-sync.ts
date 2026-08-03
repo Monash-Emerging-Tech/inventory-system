@@ -61,7 +61,7 @@ export async function syncAllMembers(): Promise<SyncResult> {
       .filter(Boolean)
       .join(", ");
     throw new Error(
-      `Member sync not configured — missing env vars: ${missing}. Check server logs for full list.`,
+      `Member sync not configured - missing env vars: ${missing}. Check server logs for full list.`,
     );
   }
   if (isSyncing) {
@@ -148,7 +148,7 @@ export async function syncOneMember(
       .filter(Boolean)
       .join(", ");
     throw new Error(
-      `Member sync not configured — missing env vars: ${missing}. Check server logs for full list.`,
+      `Member sync not configured - missing env vars: ${missing}. Check server logs for full list.`,
     );
   }
 
@@ -181,7 +181,7 @@ export async function syncOneMember(
 
 export function startMemberSyncScheduler(): void {
   if (!notionClient || !memberDbId) {
-    logger.debug("Member sync scheduler skipped — Notion not configured");
+    logger.debug("Member sync scheduler skipped - Notion not configured");
     return;
   }
 

@@ -137,7 +137,7 @@ export default function CheckIn() {
                 <QRScanner
                   onScan={handleQRScan}
                   title="Scan Item QR Codes"
-                  description="Scan QR codes to add items — camera stays open for multiple scans"
+                  description="Scan QR codes to add items - camera stays open for multiple scans"
                   multiScan
                 />
               </div>

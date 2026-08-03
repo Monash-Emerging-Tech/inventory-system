@@ -65,7 +65,7 @@ const ALL_ACTIONS: AuditActionType[] = [
 
 function DiffCell({ before, after }: { before: unknown; after: unknown }) {
   if (!before && !after)
-    return <span className="text-muted-foreground">—</span>;
+    return <span className="text-muted-foreground">-</span>;
 
   const renderObj = (obj: unknown) => {
     if (!obj || typeof obj !== "object") return null;

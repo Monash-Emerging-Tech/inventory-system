@@ -97,7 +97,7 @@ function WebcamTile({
       className="relative overflow-hidden rounded-lg border border-white/10 bg-zinc-900"
       style={{ height: tileHeight }}
     >
-      {/* Live snapshot image — hidden on error (no webcam / cache cold) */}
+      {/* Live snapshot image - hidden on error (no webcam / cache cold) */}
       <img
         src={snapshotSrc}
         className="absolute inset-0 w-full h-full object-cover"

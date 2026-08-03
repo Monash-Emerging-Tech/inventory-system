@@ -142,7 +142,7 @@ function PrinterCard({
               <span className="text-2xl font-black tracking-tighter tabular-nums leading-none">
                 {status.progress != null
                   ? `${status.progress.toFixed(1)}%`
-                  : "—"}
+                  : "-"}
               </span>
             </div>
             <div className="flex flex-col text-right shrink-0">
@@ -152,7 +152,7 @@ function PrinterCard({
               <span className="text-base font-bold tabular-nums leading-none text-foreground/80">
                 {status.timeRemaining != null
                   ? formatDuration(status.timeRemaining)
-                  : "—"}
+                  : "-"}
               </span>
             </div>
           </div>
@@ -363,7 +363,7 @@ function AmsSlotEditDialog({
           nozzleTempMax: tempMax,
         }),
       ];
-      // Same colour-naming logic as the print queue's filament picker —
+      // Same colour-naming logic as the print queue's filament picker -
       // updates the assigned spool's name if one exists, otherwise creates
       // and assigns one, keyed off this exact printer/AMS/tray.
       if (colorName.trim()) {
@@ -629,7 +629,7 @@ function AmsSlotEditDialog({
             <Input
               value={colorName}
               onChange={(e) => setColorName(e.target.value)}
-              placeholder="e.g. Bambu Black — leave blank for Unknown"
+              placeholder="e.g. Bambu Black - leave blank for Unknown"
             />
           </div>
 
@@ -737,7 +737,7 @@ function PrinterDetail({
     { bambuddyId: status.bambuddyId! },
     { enabled: status.bambuddyId != null && status.amsExists },
   );
-  // Same colour-name resolution as the print queue's filament picker — the
+  // Same colour-name resolution as the print queue's filament picker - the
   // assigned spool's name is the only trustworthy source, never the raw AMS
   // metadata (which often just echoes the material for unlabelled trays).
   const slotColorNameMap = useMemo(() => {
@@ -842,7 +842,7 @@ function PrinterDetail({
               Nozzle
             </span>
             <span className="font-semibold text-lg">
-              {status.nozzleTemp != null ? status.nozzleTemp.toFixed(1) : "—"}
+              {status.nozzleTemp != null ? status.nozzleTemp.toFixed(1) : "-"}
               °C
             </span>
           </div>
@@ -852,7 +852,7 @@ function PrinterDetail({
               Bed
             </span>
             <span className="font-semibold text-lg">
-              {status.bedTemp != null ? status.bedTemp.toFixed(1) : "—"}
+              {status.bedTemp != null ? status.bedTemp.toFixed(1) : "-"}
               °C
             </span>
           </div>
@@ -884,7 +884,7 @@ function PrinterDetail({
               <span className="font-semibold text-sm">
                 {status.progress != null
                   ? `${status.progress.toFixed(1)}%`
-                  : "—"}
+                  : "-"}
               </span>
             </div>
           </div>
@@ -896,7 +896,7 @@ function PrinterDetail({
             <span className="font-semibold text-lg">
               {status.timeRemaining != null
                 ? formatDuration(status.timeRemaining)
-                : "—"}
+                : "-"}
             </span>
           </div>
 
@@ -908,7 +908,7 @@ function PrinterDetail({
               className="font-semibold truncate"
               title={status.fileName ?? undefined}
             >
-              {status.fileName ?? "—"}
+              {status.fileName ?? "-"}
             </span>
           </div>
 
@@ -916,7 +916,7 @@ function PrinterDetail({
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Filament
             </span>
-            <span className="font-semibold">{status.filamentType ?? "—"}</span>
+            <span className="font-semibold">{status.filamentType ?? "-"}</span>
           </div>
 
           {status.layerNum != null && status.totalLayers != null ? (
@@ -969,7 +969,7 @@ function PrinterDetail({
               className="font-semibold truncate"
               title={status.startedBy?.name ?? undefined}
             >
-              {status.startedBy?.name ?? "—"}
+              {status.startedBy?.name ?? "-"}
             </span>
           </div>
         </div>
@@ -1165,7 +1165,7 @@ function PrinterDetail({
                           }}
                         />
                         <span className="text-[10px] font-semibold text-center leading-tight truncate w-full text-center">
-                          {tray.tray_type ?? "—"}
+                          {tray.tray_type ?? "-"}
                         </span>
                         <span
                           className={`text-[9px] truncate w-full text-center leading-tight ${

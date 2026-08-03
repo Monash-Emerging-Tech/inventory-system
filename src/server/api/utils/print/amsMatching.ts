@@ -42,7 +42,7 @@ export function buildAmsSlots(amsUnits: AMSUnit[]): AmsSlot[] {
 
 /** Bambuddy addresses the external/manual-load spool holder (no physical AMS
  *  unit) via the sentinel ams_id=255, with tray_id 0/1 for the (up to two)
- *  external holders — firmware itself reports it as vt_tray with a global id
+ *  external holders - firmware itself reports it as vt_tray with a global id
  *  of 254/255, so tray_id = vt_tray.id - 254. */
 export function buildExternalSlots(vtTray: AMSTray[]): AmsSlot[] {
   return vtTray.map((tray) => ({

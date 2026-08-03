@@ -50,7 +50,7 @@ import type { inferProcedureOutput } from "@trpc/server";
 type Member = inferProcedureOutput<AppRouter["user"]["members"]>[number];
 
 function formatDate(date: Date | string | null | undefined) {
-  if (!date) return "—";
+  if (!date) return "-";
   return new Intl.DateTimeFormat("en-AU", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -213,7 +213,7 @@ export default function Members() {
   const syncAllMutation = trpc.user.syncAllMembers.useMutation({
     onSuccess: (result) => {
       toast.success(
-        `Sync complete — ${result.updated} updated, ${result.skipped} unchanged`,
+        `Sync complete - ${result.updated} updated, ${result.skipped} unchanged`,
       );
       void utils.user.members.invalidate();
       void refetchSyncStatus();
@@ -374,7 +374,7 @@ export default function Members() {
                         <MemberAvatar member={member} />
                         <div className="min-w-0">
                           <p className="font-medium truncate">
-                            {member.name ?? "—"}
+                            {member.name ?? "-"}
                             {isSelf && (
                               <span className="ml-1.5 text-xs text-muted-foreground">
                                 (you)
@@ -395,7 +395,7 @@ export default function Members() {
                     <TableCell className="text-sm">
                       {member.studentNumber ?? (
                         <span className="text-muted-foreground">
-                          {inNotion ? "—" : "N/A"}
+                          {inNotion ? "-" : "N/A"}
                         </span>
                       )}
                     </TableCell>
@@ -417,13 +417,13 @@ export default function Members() {
                             ) : null)}
                         </div>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
                     <TableCell className="text-sm">
                       {member.group?.name ?? (
                         <span className="text-muted-foreground">
-                          {inNotion ? "—" : "N/A"}
+                          {inNotion ? "-" : "N/A"}
                         </span>
                       )}
                     </TableCell>

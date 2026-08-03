@@ -146,7 +146,7 @@ function QueueItemRow({
   const status = item.status?.toLowerCase() as QueueStatus;
   const isPending = status === "pending";
 
-  // A pending job never waits on a human — if it can't proceed, its
+  // A pending job never waits on a human - if it can't proceed, its
   // assigned printer has a real hardware problem. Surface that as an error
   // state rather than a "held" one.
   const hasPrinterError =
@@ -197,7 +197,7 @@ function QueueItemRow({
             <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
           </span>
         ) : isTerminal ? (
-          <span className="text-xs font-mono text-muted-foreground/50">—</span>
+          <span className="text-xs font-mono text-muted-foreground/50">-</span>
         ) : (
           <span className="text-xs font-mono text-muted-foreground">
             #{item.position}
@@ -245,7 +245,7 @@ function QueueItemRow({
             <span className="flex items-center gap-1">
               <Package className="h-3 w-3" />
               {item.filament_overrides.map((o, i) => (
-                <span key={i} title={`${o.type} — ${o.color_name}`}>
+                <span key={i} title={`${o.type} - ${o.color_name}`}>
                   <ColorSwatch hex={o.color.replace("#", "")} />
                 </span>
               ))}
@@ -271,7 +271,7 @@ function QueueItemRow({
           <span className="flex items-center gap-1">
             <FolderOpen className="h-3 w-3" />
             {item.notionProjectName ??
-              (item.personalUse ? "Personal use" : "—")}
+              (item.personalUse ? "Personal use" : "-")}
           </span>
           {item.scheduled_time && (
             <span className="flex items-center gap-1">
@@ -285,12 +285,12 @@ function QueueItemRow({
           {item.been_jumped && (
             <span className="flex items-center gap-1 text-orange-500 dark:text-orange-400">
               <SkipForward className="h-3 w-3" />
-              Skipped — waiting for compatible printer
+              Skipped - waiting for compatible printer
             </span>
           )}
         </div>
 
-        {/* Deleted archive warning — only actionable on pending */}
+        {/* Deleted archive warning - only actionable on pending */}
         {item.archive_deleted && isPending && (
           <div className="flex items-start gap-1.5 text-xs text-destructive">
             <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
@@ -313,7 +313,7 @@ function QueueItemRow({
           </div>
         )}
 
-        {/* Printer error — AMS/HMS errors on the assigned printer */}
+        {/* Printer error - AMS/HMS errors on the assigned printer */}
         {hasPrinterError && (
           <div className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 space-y-1">
             <div className="flex items-start gap-1.5 text-xs text-destructive font-medium">
@@ -385,14 +385,14 @@ function QueueItemRow({
           </p>
         )}
 
-        {/* Build plate not cleared — this is the most recently completed
+        {/* Build plate not cleared - this is the most recently completed
             job on the assigned printer, surfaced above the collapsed
             history so the plate can be confirmed cleared right here. */}
         {needsPlateClear && (
           <div className="flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 px-2.5 py-1.5">
             <CheckSquare className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
             <span className="flex-1 text-xs text-amber-700 dark:text-amber-400">
-              Build plate not cleared on {printerLabel} — the next job can't
+              Build plate not cleared on {printerLabel} - the next job can't
               start until it's confirmed.
             </span>
             <button
@@ -496,7 +496,7 @@ function FilamentShortDialogContent({
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
                   Confirm there is physically enough filament on that spool
-                  before proceeding — this will mark it as sufficient and
+                  before proceeding - this will mark it as sufficient and
                   release the job.
                 </p>
               </>
@@ -545,7 +545,7 @@ function FilamentShortDialogContent({
                         </span>
                         <span className="text-muted-foreground ml-1">
                           {slot.material}
-                          {slot.colorName ? ` — ${slot.colorName}` : ""}
+                          {slot.colorName ? ` - ${slot.colorName}` : ""}
                         </span>
                       </span>
                       <span className="text-muted-foreground shrink-0">
@@ -618,7 +618,7 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
   // Filament remaining is not tracked for print blocking. If bambuddy still
   // flags an item as filament_short (e.g. remaining drifted down again
   // between queuing and starting), silently top up every matching spool
-  // back to 100% so bambuddy's own retry picks it up — no manual
+  // back to 100% so bambuddy's own retry picks it up - no manual
   // "Start anyway" click required.
   const healedFilamentShortItemIds = useRef<Set<number>>(new Set());
   const overrideFilamentToFullMutation =
@@ -700,7 +700,7 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
   const overrideFilamentShortMutation =
     trpc.printQueue.overrideFilamentShort.useMutation({
       onSuccess: () => {
-        toast.success("Spool overridden — print will start automatically");
+        toast.success("Spool overridden - print will start automatically");
         setFilamentShortDialog(null);
         invalidate();
       },
@@ -800,13 +800,11 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
             });
 
           // Printers whose build plate hasn't been confirmed cleared block
-          // their next job — surface the job that left them in that state
+          // their next job - surface the job that left them in that state
           // (their most recently completed print) above the collapsed
           // history, un-hidden, with a button to confirm it right here.
           const printersNeedingClear = new Set(
-            connectivity
-              .filter((c) => c.awaitingPlateClear)
-              .map((c) => c.id),
+            connectivity.filter((c) => c.awaitingPlateClear).map((c) => c.id),
           );
           const plateClearItemIds = new Set<number>();
           for (const printerId of printersNeedingClear) {
@@ -829,7 +827,7 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
               ),
             );
 
-          // Completed/failed/skipped/cancelled jobs are done — auto-collapse
+          // Completed/failed/skipped/cancelled jobs are done - auto-collapse
           // them behind a toggle so the panel stays focused on what's live.
           const history = [...queueItems]
             .filter(

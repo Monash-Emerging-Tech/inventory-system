@@ -357,7 +357,7 @@ export default function KioskPrintStatus() {
             </div>
           ) : !queueQuery.data?.length ? (
             <p className="text-sm text-muted-foreground">
-              Queue is empty — no pending or active jobs.
+              Queue is empty - no pending or active jobs.
             </p>
           ) : (
             <div className="rounded-lg border overflow-hidden">

@@ -54,7 +54,7 @@ function acceptUploadFile(file: File): boolean {
   const lower = file.name.toLowerCase();
   if (lower.endsWith(".gcode")) {
     toast.error(
-      "Plain .gcode files aren't accepted — export as .gcode.3mf from Bambu Studio or Orca Slicer",
+      "Plain .gcode files aren't accepted - export as .gcode.3mf from Bambu Studio or Orca Slicer",
     );
     return false;
   }
@@ -325,7 +325,7 @@ export function PrintJobModal({
     onSuccess: (data) => {
       if (data.unmatchedSlots.length > 0) {
         toast.warning(
-          `Queued — ${data.unmatchedSlots.length} slot(s) had no matching filament yet; Bambuddy will assign automatically`,
+          `Queued - ${data.unmatchedSlots.length} slot(s) had no matching filament yet; Bambuddy will assign automatically`,
         );
       } else {
         toast.success("Added to print queue");
@@ -398,7 +398,7 @@ export function PrintJobModal({
         if (job.status === "completed") {
           setUploadProgress(100);
           setArchiveId(job.archiveId);
-          toast.success("File uploaded — proceeding to next step");
+          toast.success("File uploaded - proceeding to next step");
           advance();
           return;
         }
@@ -509,13 +509,13 @@ export function PrintJobModal({
       ? uploadFile.name
       : (selectedArchive?.print_name ??
         selectedArchive?.filename ??
-        (archiveId ? `#${archiveId}` : "—"));
+        (archiveId ? `#${archiveId}` : "-"));
 
   const availablePrinterSlots = printerAms?.slots ?? [];
 
   // Color options for a type when targeting a specific printer. Named
   // colours are deduplicated by hex (an AMS can have the same colour loaded
-  // in multiple slots); unrecognised trays are never deduplicated — every
+  // in multiple slots); unrecognised trays are never deduplicated - every
   // one is a distinct physical tray needing its own name.
   function getPrinterColorsForType(reqType: string) {
     const filtered = availablePrinterSlots.filter((s) =>
@@ -550,7 +550,7 @@ export function PrintJobModal({
 
   // Color options for a type across all compatible printers. Named colours
   // are deduplicated by hex (keeping the fullest spool); unrecognised trays
-  // are never deduplicated — every one is a distinct physical tray.
+  // are never deduplicated - every one is a distinct physical tray.
   function getMultiPrinterColorsForType(reqType: string) {
     const filtered = multiPrinterFilaments.filter((f) => {
       if (!filamentTypeMatches(f.tray_type, reqType)) return false;
@@ -588,7 +588,7 @@ export function PrintJobModal({
         next.set(slotIdx, { mode: "any" });
       } else {
         next.set(slotIdx, { mode: "color", colorHex, colorName });
-        // Filament remaining is not tracked for print blocking — reset every
+        // Filament remaining is not tracked for print blocking - reset every
         // matching spool (any printer) to 100% as soon as it's chosen.
         overrideFilamentToFullMutation.mutate({ filamentType, colorHex });
       }
@@ -621,7 +621,7 @@ export function PrintJobModal({
     hex: string;
     locations: NamingLocation[];
     // True only for the "Can't find your filament?" flow, where the slot's
-    // type isn't already known from a filament requirement — the user must
+    // type isn't already known from a filament requirement - the user must
     // supply it themselves rather than it being locked from context.
     editableType: boolean;
   } | null>(null);
@@ -631,7 +631,7 @@ export function PrintJobModal({
   const [namingHexInput, setNamingHexInput] = useState("");
   const [locationSelectOpen, setLocationSelectOpen] = useState(false);
 
-  // "Can't find your filament?" — manual printer/slot lookup independent of
+  // "Can't find your filament?" - manual printer/slot lookup independent of
   // the current filament requirements, for registering or correcting a slot
   // that isn't showing up (or showing wrong) in the picker above.
   const [findFilamentOpen, setFindFilamentOpen] = useState(false);
@@ -711,7 +711,7 @@ export function PrintJobModal({
   // Multiple unrecognised trays get grouped into one "N Unknown Filaments"
   // row (their hexes are meaningless firmware placeholders, so they can't be
   // grouped by colour). Opening it must force the user to pick a printer/AMS
-  // slot before naming — no default location, no prefilled name/hex.
+  // slot before naming - no default location, no prefilled name/hex.
   function openUnknownNamingPopup(
     filamentType: string,
     locations: NamingLocation[],
@@ -731,7 +731,7 @@ export function PrintJobModal({
 
   // Manual lookup flow: the user picked a specific printer/slot themselves
   // (not derived from a filament requirement), so the type isn't known in
-  // advance — pre-fill from whatever's currently registered there, if
+  // advance - pre-fill from whatever's currently registered there, if
   // anything, and let them edit or set it from scratch.
   function openFindFilamentPopup(
     location: NamingLocation,
@@ -751,7 +751,7 @@ export function PrintJobModal({
     setLocationSelectOpen(false);
   }
 
-  // "PRNT001-AMS0,AMS3, PRNT010-AMS2" — one segment per printer, AMS ids
+  // "PRNT001-AMS0,AMS3, PRNT010-AMS2" - one segment per printer, AMS ids
   // grouped and sorted within it.
   function formatUnknownLocations(locations: NamingLocation[]): string {
     const byPrinter = new Map<number, { name: string; amsIds: number[] }>();
@@ -1151,7 +1151,7 @@ export function PrintJobModal({
                             <SelectItem key={p.id} value={String(p.id)}>
                               {p.name}
                               {p.model ? ` (${p.model})` : ""}
-                              {p.location ? ` — ${p.location}` : ""}
+                              {p.location ? ` - ${p.location}` : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -1168,7 +1168,7 @@ export function PrintJobModal({
                 {targetingMode === "any" ? (
                   <p className="text-sm text-muted-foreground">
                     Colour selection is not available when targeting any printer
-                    — Bambuddy picks the best available filament automatically.
+                    - Bambuddy picks the best available filament automatically.
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
@@ -1374,7 +1374,7 @@ export function PrintJobModal({
                                           <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
                                           <span>
                                             No printer currently has all
-                                            selected colours — job will wait
+                                            selected colours - job will wait
                                             until one becomes available.
                                           </span>
                                         </div>
@@ -1398,7 +1398,7 @@ export function PrintJobModal({
                                           // the AMS often just repeat the
                                           // material (e.g. "PLA Matte") for
                                           // manually-loaded spools rather
-                                          // than a real colour name — the
+                                          // than a real colour name - the
                                           // assigned spool's colour_name is
                                           // the only trustworthy source.
                                           const name = isMultiPrinter
@@ -1489,7 +1489,7 @@ export function PrintJobModal({
                                         })}
 
                                         {/* Grouped row for every unrecognised
-                                            tray of this type — hexes are
+                                            tray of this type - hexes are
                                             meaningless firmware placeholders
                                             so they can't be grouped by
                                             colour */}
@@ -1664,7 +1664,7 @@ export function PrintJobModal({
                     <span className="font-medium break-words text-right min-w-0">
                       {selectedProjectId === "__personal__"
                         ? "Personal / No project"
-                        : (selectedProject?.name ?? "—")}
+                        : (selectedProject?.name ?? "-")}
                     </span>
                   </div>
                 </div>

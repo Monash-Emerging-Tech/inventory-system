@@ -154,7 +154,7 @@ export default function KioskCheckin() {
                 </Button>
               }
               title="Scan Item QR Codes"
-              description="Scan QR codes to select items — camera stays open for multiple scans"
+              description="Scan QR codes to select items - camera stays open for multiple scans"
               multiScan
             />
             {safeItems.length > 0 && (

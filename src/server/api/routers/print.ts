@@ -115,9 +115,9 @@ function prusaStateMessage(state: string, progressText = ""): string {
     case "PAUSED":
       return "Paused";
     case "ATTENTION":
-      return "Printer needs attention — check display";
+      return "Printer needs attention - check display";
     case "ERROR":
-      return "Printer error — check display";
+      return "Printer error - check display";
     case "STOPPED":
       return "Print stopped";
     case "BUSY":
@@ -364,7 +364,7 @@ const dispatchToPrinter = async (params: {
         }
 
         if (uploadRes.ok || uploadRes.status === 409) {
-          // 409 = file already exists on printer storage — treat as success
+          // 409 = file already exists on printer storage - treat as success
           resolvedStorageForStart = candidate.storage;
           uploadSucceeded = true;
           break;
@@ -544,7 +544,7 @@ const dispatchToPrinter = async (params: {
     }
   } catch (error) {
     if (error instanceof TRPCError) throw error;
-    // Status check failure is non-fatal — proceed with dispatch
+    // Status check failure is non-fatal - proceed with dispatch
     logger.error({ err: error }, "BamBuddy status pre-check failed");
   }
 
@@ -1171,7 +1171,7 @@ export const printRouter = router({
       if (!assignment?.spool) {
         return {
           message:
-            "No spool assigned to this slot — remaining not updated in inventory.",
+            "No spool assigned to this slot - remaining not updated in inventory.",
           noSpool: true,
         };
       }
@@ -1800,7 +1800,7 @@ export const printRouter = router({
       });
 
       if (existingJob) {
-        // File already stored — just dispatch it
+        // File already stored - just dispatch it
         const newJob = await ctx.prisma.gcodePrintJob.create({
           data: {
             userId: ctx.user.id,
@@ -1857,7 +1857,7 @@ export const printRouter = router({
         }
       }
 
-      // New file — dispatch and S3 upload in parallel so a slow/unavailable S3
+      // New file - dispatch and S3 upload in parallel so a slow/unavailable S3
       // does not block the print job from starting.
       const timestamp = Date.now();
       const storedName = `${timestamp}_${sha256.slice(0, 12)}_${safeName}`;
@@ -2013,7 +2013,7 @@ export const printRouter = router({
         });
       }
 
-      // Rename to the person reprinting — keep the original project/file
+      // Rename to the person reprinting - keep the original project/file
       // segments, only the uploader segment changes.
       const parsedOriginalName = parsePrintUploadFilename(
         originalJob.originalFilename,
@@ -2215,7 +2215,7 @@ export const printRouter = router({
           }
         }
 
-        // Find who started this print — most recent DISPATCHED job for this printer
+        // Find who started this print - most recent DISPATCHED job for this printer
         const recentJob = await ctx.prisma.gcodePrintJob.findFirst({
           where: { printerId: printer.id, status: "DISPATCHED" },
           orderBy: { createdAt: "desc" },
@@ -2275,7 +2275,7 @@ export const printRouter = router({
 
   // ─── PrintCam dashboard (server-side polling cache) ──────────────────────
 
-  // Fully synchronous — reads only from in-memory cache, no DB or network calls.
+  // Fully synchronous - reads only from in-memory cache, no DB or network calls.
   // Attribution (startedBy) is refreshed by the background poller.
   getPrintCamDashboard: userProcedure.query(() => {
     return getAllCachedStatuses();
@@ -2293,7 +2293,7 @@ export const printRouter = router({
       ctx.prisma.printer.findMany({ orderBy: { createdAt: "desc" } }),
     ]);
 
-    // Fetch all bambu statuses in parallel — one list call, no per-printer resolution
+    // Fetch all bambu statuses in parallel - one list call, no per-printer resolution
     const bambuStatusResults = await Promise.allSettled(
       bambuddyPrinters.map((p) => getBambuddyPrinterStatus(p.id)),
     );
@@ -2404,7 +2404,7 @@ export const printRouter = router({
       }
     }
 
-    // ── Bambu printers — status from bambuddy directly ──────────────────────
+    // ── Bambu printers - status from bambuddy directly ──────────────────────
     const bambuResults = bambuddyPrinters.map((bambuPrinter, i) => {
       const settled = bambuStatusResults[i];
       const s = settled?.status === "fulfilled" ? settled.value : null;
@@ -2549,7 +2549,7 @@ export const printRouter = router({
       };
     });
 
-    // ── Prusa printers — status from local API ───────────────────────────────
+    // ── Prusa printers - status from local API ───────────────────────────────
     const prusaResults = await Promise.allSettled(
       prusaPrinters.map(async (printer) => {
         let state = "UNKNOWN";

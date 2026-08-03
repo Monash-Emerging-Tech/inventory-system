@@ -78,10 +78,10 @@ export async function checkDiscordGuildMember(
     const res = await fetch(url, {
       headers: { Authorization: `Bot ${botToken}` },
     });
-    if (!res.ok) return true; // API error — don't flag as invalid
+    if (!res.ok) return true; // API error - don't flag as invalid
     members = (await res.json()) as Record<string, unknown>[];
   } catch {
-    return true; // network failure — don't show false warnings
+    return true; // network failure - don't show false warnings
   }
 
   return members.some((member) => {

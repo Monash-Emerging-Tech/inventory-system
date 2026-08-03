@@ -55,7 +55,7 @@ function normalizeHex(hex: string | null | undefined): string {
 }
 
 /** Human-readable colour names must come from the spool explicitly assigned
- *  to a specific printer/AMS/tray — not a type+hex guess. Bambu firmware
+ *  to a specific printer/AMS/tray - not a type+hex guess. Bambu firmware
  *  reports "FFFFFF" for trays it can't read (no RFID / manual load), which
  *  would otherwise coincidentally match an unrelated spool that's genuinely
  *  white and wrongly "resolve" an unlabelled tray. */
@@ -103,7 +103,7 @@ function formatBambuddyStartError(detail: {
       (d) =>
         `Slot ${d.slot_id} (${d.filament_type}): needs ${d.required_grams.toFixed(1)}g, ${d.remaining_grams.toFixed(1)}g remaining`,
     );
-    return `Insufficient filament — ${parts.join("; ")}`;
+    return `Insufficient filament - ${parts.join("; ")}`;
   }
   return `Cannot start print: ${detail.code.replace(/_/g, " ")}`;
 }
@@ -318,12 +318,12 @@ export const printQueueRouter = router({
           submissions.map((s) => [s.bambuddyQueueItemId, s]),
         );
 
-        // A pending job never waits on a human — if it can't proceed it's
+        // A pending job never waits on a human - if it can't proceed it's
         // because its assigned printer has a real problem. Surface that
         // printer's AMS/HMS errors directly on the row instead of a "held"
         // state, so it's clear the job is blocked by hardware, not policy.
         // Bambuddy's raw status casing isn't guaranteed lowercase (the UI
-        // itself lowercases before comparing) — normalise here too.
+        // itself lowercases before comparing) - normalise here too.
         const pendingPrinterIds = [
           ...new Set(
             items
@@ -414,7 +414,7 @@ export const printQueueRouter = router({
       } catch (err) {
         logger.error(
           { err, archiveId: input.archiveId },
-          "Failed to rename archive for queuing — using original archive",
+          "Failed to rename archive for queuing - using original archive",
         );
       }
 
@@ -428,7 +428,7 @@ export const printQueueRouter = router({
 
         // Specific-printer targeting: resolve AMS mapping against that printer's
         // live AMS state so the job starts on the right slot immediately. A
-        // print must never be held on a manual release — if some slots can't
+        // print must never be held on a manual release - if some slots can't
         // be matched right now, queue with a null mapping and let Bambuddy
         // resolve/dispatch normally; an unresolved match surfaces as a
         // printer error on the queue row instead of blocking the job.
@@ -445,18 +445,18 @@ export const printQueueRouter = router({
             if (unmatched.length > 0) {
               logger.warn(
                 { unmatched, archiveId, printerId: targeting.printerId },
-                "Some filament slots could not be matched — queuing anyway",
+                "Some filament slots could not be matched - queuing anyway",
               );
             }
           } catch (err) {
-            logger.error({ err }, "AMS matching failed — queuing anyway");
+            logger.error({ err }, "AMS matching failed - queuing anyway");
           }
         }
 
         // Model targeting: send force_color_match overrides so Bambuddy's
         // scheduler waits for a printer of the target model with exact colours
         // loaded. Bambuddy computes the AMS mapping at dispatch time.
-        // "Any" targeting is intentionally excluded — Bambuddy drops
+        // "Any" targeting is intentionally excluded - Bambuddy drops
         // filament_overrides when no target_model is set.
         if (colorConstraints.length > 0 && targeting.mode === "model") {
           filamentOverrides = colorConstraints
@@ -473,7 +473,7 @@ export const printQueueRouter = router({
           if (filamentOverrides.length === 0) filamentOverrides = null;
           logger.info(
             { colorConstraints: colorConstraints.length },
-            "Queuing with force_color_match overrides — Bambuddy will wait for matching printer",
+            "Queuing with force_color_match overrides - Bambuddy will wait for matching printer",
           );
         }
       }
@@ -518,7 +518,7 @@ export const printQueueRouter = router({
         ) {
           logger.warn(
             { queueItemId: result.id, filamentOverrides },
-            "filament_overrides missing from POST response — patching queue item",
+            "filament_overrides missing from POST response - patching queue item",
           );
           try {
             result = await updateQueueItem(result.id, {
@@ -534,7 +534,7 @@ export const printQueueRouter = router({
           } catch (patchErr) {
             logger.error(
               { patchErr, queueItemId: result.id },
-              "PATCH filament_overrides failed — job queued without colour enforcement",
+              "PATCH filament_overrides failed - job queued without colour enforcement",
             );
           }
         }
@@ -698,7 +698,7 @@ export const printQueueRouter = router({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
-            "No printer is assigned to this job yet — cannot resolve filament shortage.",
+            "No printer is assigned to this job yet - cannot resolve filament shortage.",
         });
       }
 
@@ -756,7 +756,7 @@ export const printQueueRouter = router({
         };
       }
 
-      // No match — return all slots for manual selection
+      // No match - return all slots for manual selection
       return {
         status: "no_match" as const,
         printerId: item.printer_id,
@@ -884,7 +884,7 @@ export const printQueueRouter = router({
       const normalizedType = input.filamentType.toUpperCase();
       const normalizedNewHex = normalizeHex(input.colorHex);
 
-      // Look up by the tray's actual assignment, not a type+hex guess — the
+      // Look up by the tray's actual assignment, not a type+hex guess - the
       // hex alone can't be trusted (see buildAssignmentColorNameMap).
       const assignments = await getInventoryAssignments(input.printerId);
       const existing = assignments.find(

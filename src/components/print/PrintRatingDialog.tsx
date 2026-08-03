@@ -135,7 +135,7 @@ export function PrintRatingDialog({
           <DialogTitle>Rate this print</DialogTitle>
           <DialogDescription>
             {printerName ?? "Printer"}
-            {fileName ? ` — ${fileName}` : ""}
+            {fileName ? ` - ${fileName}` : ""}
           </DialogDescription>
         </DialogHeader>
 
