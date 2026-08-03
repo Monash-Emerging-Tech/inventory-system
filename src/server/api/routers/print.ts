@@ -52,6 +52,7 @@ import {
   listQueue,
   type PrintQueueItemResponse,
   type AMSUnit,
+  type AMSTray,
   type BambuddyPrinter,
   type HMSError,
 } from "@/server/lib/bambuddy";
@@ -2432,6 +2433,7 @@ export const printRouter = router({
       let nozzles: { nozzle_type: string; nozzle_diameter: string }[] = [];
       let amsUnits: AMSUnit[] = [];
       let amsExists = false;
+      let vtTray: AMSTray[] = [];
       let awaitingPlateClear = false;
 
       if (s === null) {
@@ -2487,6 +2489,7 @@ export const printRouter = router({
         nozzles = s.nozzles ?? [];
         amsUnits = s.ams ?? [];
         amsExists = s.ams_exists ?? false;
+        vtTray = s.vt_tray ?? [];
         awaitingPlateClear = s.awaiting_plate_clear ?? false;
         const hmsErrors = s.hms_errors ?? [];
         if (hmsErrors.length > 0) {
@@ -2546,6 +2549,7 @@ export const printRouter = router({
         nozzles,
         ams: amsUnits,
         amsExists,
+        vtTray,
         awaitingPlateClear,
         startedBy,
         jobStartedAt: null,
@@ -2655,6 +2659,7 @@ export const printRouter = router({
           }[],
           ams: [] as AMSUnit[],
           amsExists: false,
+          vtTray: [] as AMSTray[],
           awaitingPlateClear: false,
           startedBy: resolveStartedBy(
             job ? { name: job.user.name, email: job.user.email } : null,
