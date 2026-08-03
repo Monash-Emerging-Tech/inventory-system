@@ -35,6 +35,7 @@ import {
 } from "@/server/lib/bambuddy";
 import {
   buildAmsSlots,
+  buildExternalSlots,
   matchFilaments,
   buildAmsMapping,
   type FilamentConstraint,
@@ -179,7 +180,11 @@ export const printQueueRouter = router({
           getInventoryAssignments(input.printerId).catch(() => []),
         ]);
         const colorNames = buildAssignmentColorNameMap(assignments);
-        const slots = buildAmsSlots(status.ams).map((slot) => ({
+        const rawSlots = [
+          ...buildAmsSlots(status.ams),
+          ...buildExternalSlots(status.vt_tray),
+        ];
+        const slots = rawSlots.map((slot) => ({
           ...slot,
           colorName:
             colorNames.get(

@@ -1,4 +1,4 @@
-import type { AMSUnit } from "@/server/lib/bambuddy";
+import type { AMSUnit, AMSTray } from "@/server/lib/bambuddy";
 
 export interface AmsSlot {
   flatIndex: number;
@@ -38,6 +38,23 @@ export function buildAmsSlots(amsUnits: AMSUnit[]): AmsSlot[] {
       remain: tray.remain,
     })),
   );
+}
+
+/** Bambuddy addresses the external/manual-load spool holder (no physical AMS
+ *  unit) via the sentinel ams_id=255, with tray_id 0/1 for the (up to two)
+ *  external holders — firmware itself reports it as vt_tray with a global id
+ *  of 254/255, so tray_id = vt_tray.id - 254. */
+export function buildExternalSlots(vtTray: AMSTray[]): AmsSlot[] {
+  return vtTray.map((tray) => ({
+    flatIndex: 1020 + (tray.id - 254),
+    amsId: 255,
+    trayId: tray.id - 254,
+    trayType: tray.tray_type ?? null,
+    trayColor: tray.tray_color ?? null,
+    trayIdName: tray.tray_id_name ?? null,
+    traySubBrands: tray.tray_sub_brands ?? null,
+    remain: tray.remain,
+  }));
 }
 
 function rgbHex(color: string): string {

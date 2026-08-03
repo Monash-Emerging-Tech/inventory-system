@@ -44,6 +44,7 @@ import {
   Check,
   Pencil,
   Tag,
+  Search,
 } from "lucide-react";
 
 type TargetingMode = "any" | "model" | "printer";
@@ -274,6 +275,8 @@ export function PrintJobModal({
       setTimelapse(false);
       setBedLevelling(true);
       setSelectedProjectId("");
+      setFindFilamentOpen(false);
+      setFindPrinterId(null);
     }
   }, [open]);
 
@@ -620,11 +623,32 @@ export function PrintJobModal({
     filamentType: string;
     hex: string;
     locations: NamingLocation[];
+    // True only for the "Can't find your filament?" flow, where the slot's
+    // type isn't already known from a filament requirement — the user must
+    // supply it themselves rather than it being locked from context.
+    editableType: boolean;
   } | null>(null);
   const [namingLocationIdx, setNamingLocationIdx] = useState(0);
+  const [namingTypeInput, setNamingTypeInput] = useState("");
   const [namingNameInput, setNamingNameInput] = useState("");
   const [namingHexInput, setNamingHexInput] = useState("");
   const [locationSelectOpen, setLocationSelectOpen] = useState(false);
+
+  // "Can't find your filament?" — manual printer/slot lookup independent of
+  // the current filament requirements, for registering or correcting a slot
+  // that isn't showing up (or showing wrong) in the picker above.
+  const [findFilamentOpen, setFindFilamentOpen] = useState(false);
+  const [findPrinterId, setFindPrinterId] = useState<number | null>(null);
+  const findPrinterAmsQuery = trpc.printQueue.getPrinterAms.useQuery(
+    { printerId: findPrinterId! },
+    { enabled: findFilamentOpen && findPrinterId != null },
+  );
+
+  function formatSlotLabel(loc: NamingLocation): string {
+    return loc.amsId === 255
+      ? `External Spool ${loc.trayId + 1}`
+      : `AMS${loc.amsId}`;
+  }
 
   const utils = trpc.useUtils();
   const nameFilamentColorMutation =
@@ -674,8 +698,14 @@ export function PrintJobModal({
       }
     }
 
-    setNamingTarget({ filamentType, hex: normalizedHex, locations });
+    setNamingTarget({
+      filamentType,
+      hex: normalizedHex,
+      locations,
+      editableType: false,
+    });
     setNamingLocationIdx(0);
+    setNamingTypeInput(filamentType);
     setNamingNameInput(currentName ?? "");
     setNamingHexInput(normalizedHex);
     setLocationSelectOpen(false);
@@ -689,11 +719,39 @@ export function PrintJobModal({
     filamentType: string,
     locations: NamingLocation[],
   ) {
-    setNamingTarget({ filamentType, hex: "", locations });
+    setNamingTarget({
+      filamentType,
+      hex: "",
+      locations,
+      editableType: false,
+    });
     setNamingLocationIdx(-1);
+    setNamingTypeInput(filamentType);
     setNamingNameInput("");
     setNamingHexInput("");
     setLocationSelectOpen(locations.length > 1);
+  }
+
+  // Manual lookup flow: the user picked a specific printer/slot themselves
+  // (not derived from a filament requirement), so the type isn't known in
+  // advance — pre-fill from whatever's currently registered there, if
+  // anything, and let them edit or set it from scratch.
+  function openFindFilamentPopup(
+    location: NamingLocation,
+    current: { type: string; hex: string; colorName: string | null } | null,
+  ) {
+    const normalizedHex = (current?.hex ?? "").slice(0, 6).toUpperCase();
+    setNamingTarget({
+      filamentType: current?.type ?? "",
+      hex: normalizedHex,
+      locations: [location],
+      editableType: true,
+    });
+    setNamingLocationIdx(0);
+    setNamingTypeInput(current?.type ?? "");
+    setNamingNameInput(current?.colorName ?? "");
+    setNamingHexInput(normalizedHex);
+    setLocationSelectOpen(false);
   }
 
   // "PRNT001-AMS0,AMS3, PRNT010-AMS2" — one segment per printer, AMS ids
@@ -720,13 +778,16 @@ export function PrintJobModal({
     if (!namingTarget) return;
     const location = namingTarget.locations[namingLocationIdx];
     if (!location) return;
-    if (!namingNameInput.trim() || !namingHexInput.trim()) return;
+    const type = namingTarget.editableType
+      ? namingTypeInput.trim()
+      : namingTarget.filamentType;
+    if (!type || !namingNameInput.trim() || !namingHexInput.trim()) return;
 
     nameFilamentColorMutation.mutate({
       printerId: location.printerId,
       amsId: location.amsId,
       trayId: location.trayId,
-      filamentType: namingTarget.filamentType,
+      filamentType: type,
       colorHex: namingHexInput.trim(),
       colorName: namingNameInput.trim(),
     });
@@ -1493,6 +1554,17 @@ export function PrintJobModal({
                       </div>
                     );
                   })()}
+
+                {!reqsLoading && filamentReqs && filamentReqs.length > 0 && (
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2 text-sm text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+                    onClick={() => setFindFilamentOpen(true)}
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    Can't find your filament?
+                  </button>
+                )}
               </div>
             )}
 
@@ -1670,7 +1742,7 @@ export function PrintJobModal({
               <DialogHeader>
                 <DialogTitle>
                   {namingLocationIdx >= 0
-                    ? `Configuring ${namingTarget.locations[namingLocationIdx]?.printerName ?? "printer"} AMS${namingTarget.locations[namingLocationIdx]?.amsId}`
+                    ? `Configuring ${namingTarget.locations[namingLocationIdx]?.printerName ?? "printer"} ${formatSlotLabel(namingTarget.locations[namingLocationIdx])}`
                     : "Select a printer / slot"}
                 </DialogTitle>
               </DialogHeader>
@@ -1694,11 +1766,22 @@ export function PrintJobModal({
                       <SelectContent>
                         {namingTarget.locations.map((loc, i) => (
                           <SelectItem key={i} value={String(i)}>
-                            {loc.printerName} AMS{loc.amsId}
+                            {loc.printerName} {formatSlotLabel(loc)}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                )}
+                {namingTarget.editableType && (
+                  <div className="space-y-1.5">
+                    <Label>Filament type</Label>
+                    <Input
+                      value={namingTypeInput}
+                      onChange={(e) => setNamingTypeInput(e.target.value)}
+                      placeholder="e.g. PLA Matte"
+                      autoFocus
+                    />
                   </div>
                 )}
                 <div className="space-y-1.5">
@@ -1708,7 +1791,7 @@ export function PrintJobModal({
                     onChange={(e) => setNamingNameInput(e.target.value)}
                     placeholder="e.g. Bambu Black"
                     disabled={namingLocationIdx < 0}
-                    autoFocus={namingLocationIdx >= 0}
+                    autoFocus={namingLocationIdx >= 0 && !namingTarget.editableType}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -1739,7 +1822,8 @@ export function PrintJobModal({
                     namingLocationIdx < 0 ||
                     nameFilamentColorMutation.isPending ||
                     !namingNameInput.trim() ||
-                    !namingHexInput.trim()
+                    !namingHexInput.trim() ||
+                    (namingTarget.editableType && !namingTypeInput.trim())
                   }
                 >
                   {nameFilamentColorMutation.isPending ? "Saving…" : "Save"}
@@ -1747,6 +1831,118 @@ export function PrintJobModal({
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={findFilamentOpen}
+        onOpenChange={(o) => {
+          setFindFilamentOpen(o);
+          if (!o) setFindPrinterId(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Can't find your filament?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Printer</Label>
+              <Select
+                value={findPrinterId?.toString() ?? ""}
+                onValueChange={(v) => setFindPrinterId(Number(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select printer…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(printers ?? []).map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                      {p.model ? ` (${p.model})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {findPrinterId != null && (
+              <div className="space-y-1">
+                <Label>Slot</Label>
+                {findPrinterAmsQuery.isLoading ? (
+                  <p className="text-xs text-muted-foreground">
+                    Loading slots…
+                  </p>
+                ) : (findPrinterAmsQuery.data?.slots ?? []).length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No slots found on this printer.
+                  </p>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {(findPrinterAmsQuery.data?.slots ?? []).map((s, i) => {
+                      const printerName =
+                        printers?.find((p) => p.id === findPrinterId)?.name ??
+                        `#${findPrinterId}`;
+                      const label =
+                        s.amsId === 255
+                          ? `External Spool ${s.trayId + 1}`
+                          : `AMS${s.amsId} Tray${s.trayId}`;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          className="w-full flex items-center gap-2.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent text-left min-w-0"
+                          onClick={() => {
+                            openFindFilamentPopup(
+                              {
+                                printerId: findPrinterId,
+                                printerName,
+                                amsId: s.amsId,
+                                trayId: s.trayId,
+                              },
+                              s.trayType
+                                ? {
+                                    type: s.trayType,
+                                    hex: s.trayColor ?? "",
+                                    colorName: s.colorName,
+                                  }
+                                : null,
+                            );
+                            setFindFilamentOpen(false);
+                          }}
+                        >
+                          {s.trayColor ? (
+                            <ColorSwatch hex={s.trayColor} />
+                          ) : (
+                            <span className="w-4 h-4 rounded-sm border border-dashed border-border shrink-0" />
+                          )}
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate font-medium">
+                              {label}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {s.trayType
+                                ? `${s.colorName ?? "Unnamed"} - ${s.trayType}`
+                                : "No filament registered"}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFindFilamentOpen(false)}
+            >
+              Cancel
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </>
