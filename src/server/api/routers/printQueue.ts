@@ -724,25 +724,43 @@ export const printQueueRouter = router({
       );
 
       const printers = await listBambuddyPrinters();
-      const printer = printers.find((p) => p.id === item.printer_id);
-      const printerName = printer?.name ?? `Printer #${item.printer_id}`;
 
-      const assignments = await getInventoryAssignments(item.printer_id);
+      // Search every printer, not just the one assigned - the original
+      // colour may have moved, or may not exist anywhere anymore, in
+      // which case the user needs to see every colour that's actually
+      // available (like the original filament picker used when queuing).
+      const allSlots: {
+        printerId: number;
+        printerName: string;
+        amsId: number;
+        trayId: number;
+        material: string;
+        colorName: string | null;
+        colorHex: string | null;
+        remaining: number;
+      }[] = [];
 
-      const slots = assignments
-        .filter((a) => a.spool != null)
-        .map((a) => ({
-          spoolId: a.spool!.id,
-          amsId: a.ams_id,
-          trayId: a.tray_id,
-          material: a.spool!.material,
-          colorName: a.spool!.color_name ?? null,
-          colorHex: normalizeHex(a.spool!.rgba),
-          remaining: a.spool!.label_weight - a.spool!.weight_used,
-        }));
+      for (const printer of printers) {
+        const assignments = await getInventoryAssignments(printer.id).catch(
+          () => [],
+        );
+        for (const a of assignments) {
+          if (!a.spool) continue;
+          allSlots.push({
+            printerId: printer.id,
+            printerName: printer.name,
+            amsId: a.ams_id,
+            trayId: a.tray_id,
+            material: a.spool.material,
+            colorName: a.spool.color_name ?? null,
+            colorHex: normalizeHex(a.spool.rgba),
+            remaining: a.spool.label_weight - a.spool.weight_used,
+          });
+        }
+      }
 
-      // Find a slot matching both type and color
-      const match = slots.find((s) => {
+      // Find a slot matching both type and color, anywhere
+      const match = allSlots.find((s) => {
         const typeMatch =
           !filamentType || s.material.toUpperCase() === filamentType;
         const colorMatch = !targetColorHex || s.colorHex === targetColorHex;
@@ -752,9 +770,8 @@ export const printQueueRouter = router({
       if (match) {
         return {
           status: "found" as const,
-          printerId: item.printer_id,
-          printerName,
-          spoolId: match.spoolId,
+          printerId: match.printerId,
+          printerName: match.printerName,
           filamentType: match.material,
           colorName: match.colorName,
           colorHex: match.colorHex,
@@ -763,15 +780,19 @@ export const printQueueRouter = router({
         };
       }
 
-      // No match - return all slots for manual selection
+      // The original colour isn't available anywhere - let the user pick
+      // any available colour of the same type, from any printer, using the
+      // exact same picker as the "add to queue" filament step.
+      const typeSlots = allSlots.filter(
+        (s) => !filamentType || s.material.toUpperCase() === filamentType,
+      );
+
       return {
-        status: "no_match" as const,
-        printerId: item.printer_id,
-        printerName,
+        status: "choose_colour" as const,
         filamentType,
         filamentColor: targetColorHex,
         required: requiredGrams,
-        slots,
+        candidates: typeSlots,
       };
     }),
 
@@ -780,12 +801,12 @@ export const printQueueRouter = router({
       z.object({
         itemId: z.number().int().positive(),
         printerId: z.number().int().positive(),
-        spoolId: z.number().int().positive(),
-        requiredGrams: z.number().min(0),
+        filamentType: z.string().min(1),
+        colorHex: z.string().min(1),
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const { itemId, printerId, spoolId, requiredGrams } = input;
+      const { itemId, printerId, filamentType, colorHex } = input;
 
       if (ctx.user.role !== "admin") {
         const submission = await prisma.printQueueSubmission.findFirst({
@@ -801,31 +822,39 @@ export const printQueueRouter = router({
         }
       }
 
-      // Fetch current spool to compute new weight_used
-      const assignments = await getInventoryAssignments(printerId).catch(
-        () => [],
-      );
-      const assignment = assignments.find((a) => a.spool?.id === spoolId);
-      const spool = assignment?.spool;
-      if (!spool) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Spool not found on that printer",
-        });
-      }
+      // Same policy as overrideFilamentToFull: filament remaining isn't
+      // tracked for print blocking, so top up every matching spool (any
+      // printer) rather than a single spool.
+      const normalizedType = filamentType.toUpperCase();
+      const normalizedHex = colorHex
+        .replace(/^#/, "")
+        .slice(0, 6)
+        .toUpperCase();
 
-      // Set weight_used so remaining = requiredGrams (just enough to pass the check)
-      const newWeightUsed = Math.max(0, spool.label_weight - requiredGrams);
-      await updateSpoolWeightUsed(spoolId, newWeightUsed);
+      const spools = await listInventorySpools();
+      const matches = spools.filter((s) => {
+        if (s.archived_at) return false;
+        if (s.material.toUpperCase() !== normalizedType) return false;
+        const hex = (s.rgba ?? "").replace(/^#/, "").slice(0, 6).toUpperCase();
+        return hex === normalizedHex;
+      });
+      await Promise.all(matches.map((s) => updateSpoolWeightUsed(s.id, 0)));
 
-      // Reassign queue item to this printer if it differs
+      // Reassign queue item to the printer that actually has this colour
       const item = await getQueueItem(itemId).catch(() => null);
       if (item && item.printer_id !== printerId) {
         await updateQueueItem(itemId, { printer_id: printerId });
       }
 
       logger.info(
-        { itemId, printerId, spoolId, newWeightUsed, userId: ctx.user.id },
+        {
+          itemId,
+          printerId,
+          filamentType: normalizedType,
+          colorHex: normalizedHex,
+          spoolCount: matches.length,
+          userId: ctx.user.id,
+        },
         "Filament short override applied",
       );
     }),

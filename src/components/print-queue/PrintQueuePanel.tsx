@@ -25,6 +25,10 @@ import { useState, useEffect, useRef } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
 import { PrintRatingDialog } from "@/components/print/PrintRatingDialog";
+import {
+  FilamentColorPicker,
+  type FilamentColorCandidate,
+} from "@/components/print-queue/FilamentColorPicker";
 
 type QueueItem =
   inferRouterOutputs<AppRouter>["printQueue"]["listQueue"][number];
@@ -484,11 +488,16 @@ function FilamentShortDialogContent({
 }: {
   dialog: FilamentShortDialog;
   isPending: boolean;
-  onConfirm: (spoolId: number) => void;
+  onConfirm: (candidate: {
+    printerId: number;
+    filamentType: string;
+    colorHex: string;
+  }) => void;
   onClose: () => void;
 }) {
-  const [selectedSpoolId, setSelectedSpoolId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<FilamentColorCandidate | null>(null);
   const info = dialog.info;
+  const utils = trpc.useUtils();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -499,7 +508,7 @@ function FilamentShortDialogContent({
             <p className="font-semibold text-sm">
               {info.status === "found"
                 ? "Confirm filament override"
-                : "Select AMS slot"}
+                : "Choose a colour"}
             </p>
 
             {info.status === "found" && (
@@ -526,58 +535,46 @@ function FilamentShortDialogContent({
               </>
             )}
 
-            {info.status === "no_match" && (
+            {info.status === "choose_colour" && (
               <>
-                <p className="text-xs text-muted-foreground mt-1">
-                  No{" "}
+                <p className="text-xs text-muted-foreground mt-1 mb-2">
                   {info.filamentColor ? (
                     <>
-                      <ColorSwatch hex={info.filamentColor} />{" "}
+                      The original <ColorSwatch hex={info.filamentColor} />{" "}
+                      colour
                     </>
-                  ) : null}
-                  {info.filamentType ?? "matching"} filament found on{" "}
-                  <strong>{info.printerName}</strong>. Select which AMS slot
-                  holds the correct filament:
+                  ) : (
+                    "The original colour"
+                  )}{" "}
+                  isn't loaded on any printer. Choose a colour below - same
+                  picker as adding a print to the queue:
                 </p>
-                <div className="mt-3 space-y-1.5 max-h-48 overflow-y-auto">
-                  {info.slots.length === 0 && (
-                    <p className="text-xs text-muted-foreground italic">
-                      No spools loaded on this printer.
-                    </p>
-                  )}
-                  {info.slots.map((slot) => (
-                    <label
-                      key={slot.spoolId}
-                      className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-xs transition-colors ${
-                        selectedSpoolId === slot.spoolId
-                          ? "border-amber-500 bg-amber-50 dark:bg-amber-950/30"
-                          : "border-border hover:bg-muted/50"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="slot"
-                        value={slot.spoolId}
-                        checked={selectedSpoolId === slot.spoolId}
-                        onChange={() => setSelectedSpoolId(slot.spoolId)}
-                        className="accent-amber-500"
-                      />
-                      {slot.colorHex && <ColorSwatch hex={slot.colorHex} />}
-                      <span className="flex-1">
-                        <span className="font-medium">
-                          AMS {slot.amsId + 1} · Slot {slot.trayId + 1}
-                        </span>
-                        <span className="text-muted-foreground ml-1">
-                          {slot.material}
-                          {slot.colorName ? ` - ${slot.colorName}` : ""}
-                        </span>
-                      </span>
-                      <span className="text-muted-foreground shrink-0">
-                        {slot.remaining.toFixed(0)}g
-                      </span>
-                    </label>
-                  ))}
-                </div>
+                <FilamentColorPicker
+                  type={info.filamentType ?? "filament"}
+                  candidates={info.candidates}
+                  emptyMessage={`No ${info.filamentType ?? "matching"} spools loaded on any printer.`}
+                  selected={
+                    selected
+                      ? {
+                          mode: "color",
+                          colorHex: selected.colorHex ?? "",
+                          colorName: selected.colorName,
+                        }
+                      : { mode: "any" }
+                  }
+                  onSelectAny={() => {
+                    const best = [...info.candidates].sort(
+                      (a, b) => b.remaining - a.remaining,
+                    )[0];
+                    setSelected(best ?? null);
+                  }}
+                  onSelectColor={(candidate) => setSelected(candidate)}
+                  onColorsChanged={() =>
+                    void utils.printQueue.getFilamentShortInfo.invalidate({
+                      itemId: dialog.itemId,
+                    })
+                  }
+                />
               </>
             )}
           </div>
@@ -592,12 +589,22 @@ function FilamentShortDialogContent({
             className="bg-amber-500 hover:bg-amber-600 text-white"
             disabled={
               isPending ||
-              (info.status === "no_match" && selectedSpoolId === null)
+              (info.status === "choose_colour" && selected === null)
             }
             onClick={() => {
-              const spoolId =
-                info.status === "found" ? info.spoolId : selectedSpoolId!;
-              onConfirm(spoolId);
+              if (info.status === "found") {
+                onConfirm({
+                  printerId: info.printerId,
+                  filamentType: info.filamentType,
+                  colorHex: info.colorHex ?? "",
+                });
+              } else if (selected) {
+                onConfirm({
+                  printerId: selected.printerId,
+                  filamentType: selected.material,
+                  colorHex: selected.colorHex ?? "",
+                });
+              }
             }}
           >
             Yes, start anyway
@@ -777,12 +784,12 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
         <FilamentShortDialogContent
           dialog={filamentShortDialog}
           isPending={overrideFilamentShortMutation.isPending}
-          onConfirm={(spoolId) =>
+          onConfirm={(candidate) =>
             overrideFilamentShortMutation.mutate({
               itemId: filamentShortDialog.itemId,
-              printerId: filamentShortDialog.info.printerId,
-              spoolId,
-              requiredGrams: filamentShortDialog.info.required,
+              printerId: candidate.printerId,
+              filamentType: candidate.filamentType,
+              colorHex: candidate.colorHex,
             })
           }
           onClose={() => setFilamentShortDialog(null)}
