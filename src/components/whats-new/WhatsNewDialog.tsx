@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-export const APP_VERSION = "1.4.0";
+export const APP_VERSION = "1.5.0";
 
 interface ChangeEntry {
   type: "new" | "improved" | "fixed";
@@ -26,6 +26,25 @@ interface VersionEntry {
 }
 
 const CHANGELOG: VersionEntry[] = [
+  {
+    version: "1.5.0",
+    date: "3 August 2026",
+    title: "No More Held Prints, Filament Naming & Kiosk Redesign",
+    changes: [
+      {
+        type: "improved",
+        text: "Prints no longer get stuck \"held for manual start.\" If a pending job can't start, it's because its assigned printer has a real problem, so the print queue now shows that printer's actual error codes and descriptions directly under the job instead of a vague hold state.",
+      },
+      {
+        type: "new",
+        text: 'Filament colours can now be named and assigned from the print queue, the printer monitoring page, and the kiosk. Every filament shows its type plus a colour name, or a clear "Unknown" you can fix on the spot, including a "Can\'t find your filament?" lookup for a specific printer and AMS (or external spool) slot. Fill percentage displays have been removed everywhere in favour of this.',
+      },
+      {
+        type: "new",
+        text: 'Build plate clear confirmation is now available right on the print queue page: the job left waiting on an uncleared plate is pulled out of history and shown with a one-tap confirm button. The kiosk print status page has also been redesigned to combine printer monitoring and queue info in one view, including finished jobs collapsed behind a "show more" toggle.',
+      },
+    ],
+  },
   {
     version: "1.4.0",
     date: "7 July 2026",
