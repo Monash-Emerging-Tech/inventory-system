@@ -1168,6 +1168,15 @@ export function PrintJobModal({
                                               .colorName;
                                         const name =
                                           spoolColorName ?? subBrands ?? idName;
+                                        const printerName = isMultiPrinter
+                                          ? (opt as (typeof multiColors)[0])
+                                              .printer_name
+                                          : selectedPrinter?.name;
+                                        const amsId = isMultiPrinter
+                                          ? (opt as (typeof multiColors)[0])
+                                              .ams_id
+                                          : (opt as (typeof printerColors)[0])
+                                              .amsId;
 
                                         const normalHex = hex
                                           .slice(0, 6)
@@ -1203,11 +1212,15 @@ export function PrintJobModal({
                                             )}
                                             <span className="flex-1 text-left min-w-0 overflow-hidden">
                                               <span className="block truncate">
-                                                {name ?? type}
+                                                {name
+                                                  ? `${name} - ${type}`
+                                                  : `${type} - Unknown`}
                                               </span>
-                                              {name && (
+                                              {!name && (
                                                 <span className="block truncate text-xs opacity-50">
-                                                  {type}
+                                                  {printerName ??
+                                                    "Unknown printer"}{" "}
+                                                  - AMS{amsId}
                                                 </span>
                                               )}
                                             </span>

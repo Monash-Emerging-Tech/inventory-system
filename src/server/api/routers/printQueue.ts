@@ -200,7 +200,11 @@ export const printQueueRouter = router({
         ]);
         return slots.map((s) => ({
           ...s,
-          spool_color_name: findSpoolColorName(spools, s.tray_type, s.tray_color),
+          spool_color_name: findSpoolColorName(
+            spools,
+            s.tray_type,
+            s.tray_color,
+          ),
         }));
       } catch (err) {
         logger.error({ err }, "Failed to get available filaments");
