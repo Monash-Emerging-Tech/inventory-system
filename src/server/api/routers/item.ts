@@ -363,7 +363,7 @@ export const itemRouter = router({
         }
       }
 
-      // Base structural filters (no text search) — used to fetch all sibling items
+      // Base structural filters (no text search) - used to fetch all sibling items
       const baseWhere = {
         consumable: { is: null },
         deleted: false,
@@ -410,7 +410,7 @@ export const itemRouter = router({
       const totalCount = allNameGroups.length;
       const names = nameGroups.map((g) => g.name);
 
-      // Step 2: fetch ALL items for those names (no text filter — show all siblings)
+      // Step 2: fetch ALL items for those names (no text filter - show all siblings)
       const items =
         names.length > 0
           ? await prisma.item.findMany({

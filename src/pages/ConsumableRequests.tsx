@@ -208,7 +208,7 @@ export default function ConsumableRequests() {
             ) : (
               items.map((r) => {
                 const supplierName =
-                  r.supplier?.name ?? r.customSupplier ?? "—";
+                  r.supplier?.name ?? r.customSupplier ?? "-";
                 const supplierUrl = r.supplier?.url ?? r.customUrl ?? null;
                 const ageMs = Date.now() - new Date(r.createdAt).getTime();
                 const ageDays = Math.floor(ageMs / 86400000);
@@ -345,7 +345,7 @@ export default function ConsumableRequests() {
           <DialogHeader>
             <DialogTitle>Mark received</DialogTitle>
             <DialogDescription>
-              {receiveTarget?.consumable.item?.name} — confirm the actual
+              {receiveTarget?.consumable.item?.name} - confirm the actual
               quantity received. Stock will be incremented.
             </DialogDescription>
           </DialogHeader>
@@ -393,7 +393,7 @@ export default function ConsumableRequests() {
           <DialogHeader>
             <DialogTitle>Cancel request</DialogTitle>
             <DialogDescription>
-              {cancelTarget?.consumable.item?.name} — provide an optional
+              {cancelTarget?.consumable.item?.name} - provide an optional
               reason.
             </DialogDescription>
           </DialogHeader>

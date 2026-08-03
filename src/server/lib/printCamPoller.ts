@@ -122,7 +122,7 @@ function prusaHttpGet(
         path,
         method: "GET",
         headers: { "X-Api-Key": authToken, Connection: "close" },
-        agent: false, // No connection pooling — fresh TCP socket every request
+        agent: false, // No connection pooling - fresh TCP socket every request
       },
       (res) => {
         let body = "";
@@ -161,9 +161,9 @@ function prusaStateMessage(state: string, progressText = ""): string {
     case "PAUSED":
       return "Paused";
     case "ATTENTION":
-      return "Printer needs attention — check display";
+      return "Printer needs attention - check display";
     case "ERROR":
-      return "Printer error — check display";
+      return "Printer error - check display";
     case "STOPPED":
       return "Print stopped";
     case "BUSY":
@@ -177,7 +177,7 @@ function prusaStateMessage(state: string, progressText = ""): string {
 
 const PRUSA_TIMEOUT_MS = 8_000;
 
-// Preserve startedBy/jobStartedAt from existing cache entry across status refreshes —
+// Preserve startedBy/jobStartedAt from existing cache entry across status refreshes -
 // these are updated separately in pollAllStatuses after all network calls complete.
 function preservedAttribution(
   id: string,
@@ -414,7 +414,7 @@ async function fetchBambuStatus(printer: {
     return;
   }
 
-  // bambuddyId is narrowed to number here — store for snapshot polling
+  // bambuddyId is narrowed to number here - store for snapshot polling
   bambuddyIdByPrinterId.set(printer.id, bambuddyId);
 
   let s: Awaited<ReturnType<typeof getBambuddyPrinterStatus>>;
@@ -520,7 +520,7 @@ let statusPollRunning = false;
 let statusPollStartedAt = 0;
 
 // Self-healing cleanup for pre-existing duplicate rows (e.g. from an IP
-// change that predates the serial-matching fix below). Idempotent — no-op
+// change that predates the serial-matching fix below). Idempotent - no-op
 // once every serial has a single row. Keeps the most recently updated row
 // per serial, migrates job history off the stale rows, then deletes them.
 async function dedupeBambuPrintersBySerial(): Promise<void> {
@@ -604,7 +604,7 @@ export async function syncBambuPrinters(): Promise<void> {
     buddyPrinters
       .filter((p) => !!p.ip_address)
       .map((p) => {
-        // Match by serial number first — a printer's IP can change (DHCP,
+        // Match by serial number first - a printer's IP can change (DHCP,
         // server migration) without its serial changing. Falling back to
         // ipAddress-only upsert would create a duplicate row per IP change.
         const existing = p.serial_number
@@ -661,7 +661,7 @@ async function pollAllStatuses(): Promise<void> {
   // Safety: reset a poll cycle that has been stuck longer than expected
   if (statusPollRunning) {
     if (Date.now() - statusPollStartedAt < STATUS_POLL_STUCK_MS) return;
-    logger.warn("Poll cycle stuck — forcing reset");
+    logger.warn("Poll cycle stuck - forcing reset");
     statusPollRunning = false;
   }
   statusPollRunning = true;

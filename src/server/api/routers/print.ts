@@ -64,6 +64,10 @@ import {
   prusaStatusResponseSchema,
   prusaJobResponseSchema,
 } from "@/server/lib/prusaSchemas";
+import {
+  buildAmsSlots,
+  buildExternalSlots,
+} from "@/server/api/utils/print/amsMatching";
 
 const printerTypeSchema = z.enum(["PRUSA", "BAMBU"]);
 
@@ -115,9 +119,9 @@ function prusaStateMessage(state: string, progressText = ""): string {
     case "PAUSED":
       return "Paused";
     case "ATTENTION":
-      return "Printer needs attention — check display";
+      return "Printer needs attention - check display";
     case "ERROR":
-      return "Printer error — check display";
+      return "Printer error - check display";
     case "STOPPED":
       return "Print stopped";
     case "BUSY":
@@ -364,7 +368,7 @@ const dispatchToPrinter = async (params: {
         }
 
         if (uploadRes.ok || uploadRes.status === 409) {
-          // 409 = file already exists on printer storage — treat as success
+          // 409 = file already exists on printer storage - treat as success
           resolvedStorageForStart = candidate.storage;
           uploadSucceeded = true;
           break;
@@ -544,7 +548,7 @@ const dispatchToPrinter = async (params: {
     }
   } catch (error) {
     if (error instanceof TRPCError) throw error;
-    // Status check failure is non-fatal — proceed with dispatch
+    // Status check failure is non-fatal - proceed with dispatch
     logger.error({ err: error }, "BamBuddy status pre-check failed");
   }
 
@@ -1171,7 +1175,7 @@ export const printRouter = router({
       if (!assignment?.spool) {
         return {
           message:
-            "No spool assigned to this slot — remaining not updated in inventory.",
+            "No spool assigned to this slot - remaining not updated in inventory.",
           noSpool: true,
         };
       }
@@ -1800,7 +1804,7 @@ export const printRouter = router({
       });
 
       if (existingJob) {
-        // File already stored — just dispatch it
+        // File already stored - just dispatch it
         const newJob = await ctx.prisma.gcodePrintJob.create({
           data: {
             userId: ctx.user.id,
@@ -1857,7 +1861,7 @@ export const printRouter = router({
         }
       }
 
-      // New file — dispatch and S3 upload in parallel so a slow/unavailable S3
+      // New file - dispatch and S3 upload in parallel so a slow/unavailable S3
       // does not block the print job from starting.
       const timestamp = Date.now();
       const storedName = `${timestamp}_${sha256.slice(0, 12)}_${safeName}`;
@@ -2013,7 +2017,7 @@ export const printRouter = router({
         });
       }
 
-      // Rename to the person reprinting — keep the original project/file
+      // Rename to the person reprinting - keep the original project/file
       // segments, only the uploader segment changes.
       const parsedOriginalName = parsePrintUploadFilename(
         originalJob.originalFilename,
@@ -2215,7 +2219,7 @@ export const printRouter = router({
           }
         }
 
-        // Find who started this print — most recent DISPATCHED job for this printer
+        // Find who started this print - most recent DISPATCHED job for this printer
         const recentJob = await ctx.prisma.gcodePrintJob.findFirst({
           where: { printerId: printer.id, status: "DISPATCHED" },
           orderBy: { createdAt: "desc" },
@@ -2275,7 +2279,7 @@ export const printRouter = router({
 
   // ─── PrintCam dashboard (server-side polling cache) ──────────────────────
 
-  // Fully synchronous — reads only from in-memory cache, no DB or network calls.
+  // Fully synchronous - reads only from in-memory cache, no DB or network calls.
   // Attribution (startedBy) is refreshed by the background poller.
   getPrintCamDashboard: userProcedure.query(() => {
     return getAllCachedStatuses();
@@ -2293,7 +2297,7 @@ export const printRouter = router({
       ctx.prisma.printer.findMany({ orderBy: { createdAt: "desc" } }),
     ]);
 
-    // Fetch all bambu statuses in parallel — one list call, no per-printer resolution
+    // Fetch all bambu statuses in parallel - one list call, no per-printer resolution
     const bambuStatusResults = await Promise.allSettled(
       bambuddyPrinters.map((p) => getBambuddyPrinterStatus(p.id)),
     );
@@ -2404,7 +2408,7 @@ export const printRouter = router({
       }
     }
 
-    // ── Bambu printers — status from bambuddy directly ──────────────────────
+    // ── Bambu printers - status from bambuddy directly ──────────────────────
     const bambuResults = bambuddyPrinters.map((bambuPrinter, i) => {
       const settled = bambuStatusResults[i];
       const s = settled?.status === "fulfilled" ? settled.value : null;
@@ -2549,7 +2553,7 @@ export const printRouter = router({
       };
     });
 
-    // ── Prusa printers — status from local API ───────────────────────────────
+    // ── Prusa printers - status from local API ───────────────────────────────
     const prusaResults = await Promise.allSettled(
       prusaPrinters.map(async (printer) => {
         let state = "UNKNOWN";
@@ -2680,6 +2684,13 @@ export const printRouter = router({
       bambuddyPrinters.map((p) => getBambuddyPrinterStatus(p.id)),
     );
 
+    // Same assignment-based colour resolution used on Printer Monitoring and
+    // the print queue's filament picker — never the raw AMS metadata, which
+    // just echoes the material for unlabelled trays.
+    const assignmentResults = await Promise.allSettled(
+      bambuddyPrinters.map((p) => getInventoryAssignments(p.id)),
+    );
+
     const localBySerial = new Map<string, (typeof localPrinters)[number]>();
     const localByIp = new Map<string, (typeof localPrinters)[number]>();
     for (const p of localPrinters) {
@@ -2694,8 +2705,26 @@ export const printRouter = router({
     const bambuResults = bambuddyPrinters.map((bambuPrinter, i) => {
       const settled = bambuStatusResults[i];
       const s = settled?.status === "fulfilled" ? settled.value : null;
+      const assignmentsSettled = assignmentResults[i];
+      const assignments =
+        assignmentsSettled?.status === "fulfilled"
+          ? assignmentsSettled.value
+          : [];
+      const colorNameByKey = new Map<string, string | null>();
+      for (const a of assignments) {
+        if (a.spool)
+          colorNameByKey.set(`${a.ams_id}:${a.tray_id}`, a.spool.color_name);
+      }
       const local = findLocal(bambuPrinter);
       const localId = local?.id ?? `bambuddy-${bambuPrinter.id}`;
+
+      let amsSlots: {
+        amsId: number;
+        trayId: number;
+        type: string | null;
+        colorHex: string | null;
+        colorName: string | null;
+      }[] = [];
 
       let state = "UNKNOWN";
       let stateMessage = "Unknown";
@@ -2752,6 +2781,21 @@ export const printRouter = router({
         timeRemaining = s.remaining_time ?? null;
         fileName = s.subtask_name ?? s.current_print ?? s.gcode_file ?? null;
         awaitingPlateClear = s.awaiting_plate_clear ?? false;
+
+        const rawSlots = [
+          ...buildAmsSlots(s.ams),
+          ...buildExternalSlots(s.vt_tray),
+        ];
+        amsSlots = rawSlots
+          .filter((slot) => slot.trayType != null)
+          .map((slot) => ({
+            amsId: slot.amsId,
+            trayId: slot.trayId,
+            type: slot.trayType,
+            colorHex: slot.trayColor,
+            colorName:
+              colorNameByKey.get(`${slot.amsId}:${slot.trayId}`) ?? null,
+          }));
       }
 
       return {
@@ -2763,6 +2807,7 @@ export const printRouter = router({
         state,
         stateMessage,
         hmsErrors,
+        amsSlots,
         progress,
         timeRemaining,
         fileName,
@@ -2839,6 +2884,13 @@ export const printRouter = router({
           state,
           stateMessage,
           hmsErrors: [] as { code: string; description: string }[],
+          amsSlots: [] as {
+            amsId: number;
+            trayId: number;
+            type: string | null;
+            colorHex: string | null;
+            colorName: string | null;
+          }[],
           progress,
           timeRemaining,
           fileName,

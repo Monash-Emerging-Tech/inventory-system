@@ -9,7 +9,7 @@ export async function startServer() {
     serverProcess = spawn("ts-node", ["server/index.ts"]);
     await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait for server to start
   } catch {
-    // child_process unavailable (e.g. jsdom environment) — skip server start
+    // child_process unavailable (e.g. jsdom environment) - skip server start
   }
 }
 

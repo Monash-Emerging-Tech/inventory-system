@@ -154,7 +154,7 @@ export function AppSidebar() {
                 )}
               </div>
 
-              {/* Administration group — admins only */}
+              {/* Administration group - admins only */}
               {isAdmin && (
                 <div className="mt-2">
                   <button

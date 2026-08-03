@@ -152,7 +152,7 @@ export default function PrintStats() {
             value={
               overview.total_prints > 0
                 ? `${Math.round((overview.successful_prints / overview.total_prints) * 100)}%`
-                : "—"
+                : "-"
             }
             subtitle={`${overview.successful_prints} successful`}
             icon={CheckCircle2}
@@ -175,7 +175,7 @@ export default function PrintStats() {
             value={
               overview.total_cost > 0
                 ? `$${overview.total_cost.toFixed(2)}`
-                : "—"
+                : "-"
             }
             icon={DollarSign}
             iconColor="text-yellow-500"
@@ -185,7 +185,7 @@ export default function PrintStats() {
             value={
               overview.total_energy_kwh > 0
                 ? `${overview.total_energy_kwh.toFixed(2)} kWh`
-                : "—"
+                : "-"
             }
             subtitle={
               overview.energy_data_warming_up ? "Warming up…" : undefined
@@ -196,7 +196,7 @@ export default function PrintStats() {
         </div>
       ) : null}
 
-      {/* Filament Usage Chart — full width */}
+      {/* Filament Usage Chart - full width */}
       <FilamentUsageChart />
 
       {/* Leaderboard + Printer Chart row */}

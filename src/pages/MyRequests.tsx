@@ -183,7 +183,7 @@ export default function MyRequests() {
               items.map((r) => {
                 const isHighlighted = r.id === highlightId;
                 const supplierName =
-                  r.supplier?.name ?? r.customSupplier ?? "—";
+                  r.supplier?.name ?? r.customSupplier ?? "-";
                 const supplierUrl = r.supplier?.url ?? r.customUrl ?? null;
                 const ageDays = Math.floor(
                   (Date.now() - new Date(r.createdAt).getTime()) / 86400000,
@@ -284,7 +284,7 @@ export default function MyRequests() {
           <DialogHeader>
             <DialogTitle>Cancel request</DialogTitle>
             <DialogDescription>
-              {cancelTarget?.consumable.item?.name} — provide an optional
+              {cancelTarget?.consumable.item?.name} - provide an optional
               reason.
             </DialogDescription>
           </DialogHeader>

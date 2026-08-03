@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -41,6 +42,9 @@ import {
   Library,
   X,
   Check,
+  Pencil,
+  Tag,
+  Search,
 } from "lucide-react";
 
 type TargetingMode = "any" | "model" | "printer";
@@ -50,7 +54,7 @@ function acceptUploadFile(file: File): boolean {
   const lower = file.name.toLowerCase();
   if (lower.endsWith(".gcode")) {
     toast.error(
-      "Plain .gcode files aren't accepted — export as .gcode.3mf from Bambu Studio or Orca Slicer",
+      "Plain .gcode files aren't accepted - export as .gcode.3mf from Bambu Studio or Orca Slicer",
     );
     return false;
   }
@@ -146,7 +150,6 @@ export function PrintJobModal({
     Map<number, TypeSelection>
   >(new Map());
 
-  const [manualStart, setManualStart] = useState(false);
   const [timelapse, setTimelapse] = useState(false);
   const [bedLevelling, setBedLevelling] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -195,6 +198,9 @@ export function PrintJobModal({
     if (targetingMode === "model") return modelFilaments ?? [];
     return [] as NonNullable<typeof modelFilaments>;
   }, [targetingMode, modelFilaments]);
+
+  // Matches the `isMultiPrinter` flag computed in the filament-step render
+  const isMultiPrinterFilamentStep = targetingMode !== "printer";
 
   // Per-slot type count so UI can show "(1 of 3)" labels
   const slotTypeCounts = useMemo(() => {
@@ -264,10 +270,11 @@ export function PrintJobModal({
       setSelectedModel("");
       setSelectedPrinterId(null);
       setSlotSelections(new Map());
-      setManualStart(false);
       setTimelapse(false);
       setBedLevelling(true);
       setSelectedProjectId("");
+      setFindFilamentOpen(false);
+      setFindPrinterId(null);
     }
   }, [open]);
 
@@ -285,6 +292,15 @@ export function PrintJobModal({
       setSelectedModel(model);
     }
   }, [archiveId, archives, printers]);
+
+  // Auto-open the project picker once a print is uploaded or picked, unless
+  // a project has already been chosen
+  useEffect(() => {
+    if ((uploadFile || archiveId) && !selectedProjectId) {
+      setProjectComboOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadFile, archiveId]);
 
   // Initialise per-slot selections when requirements load
   useEffect(() => {
@@ -309,7 +325,7 @@ export function PrintJobModal({
     onSuccess: (data) => {
       if (data.unmatchedSlots.length > 0) {
         toast.warning(
-          `Queued with manual start — ${data.unmatchedSlots.length} slot(s) had no matching filament`,
+          `Queued - ${data.unmatchedSlots.length} slot(s) had no matching filament yet; Bambuddy will assign automatically`,
         );
       } else {
         toast.success("Added to print queue");
@@ -382,7 +398,7 @@ export function PrintJobModal({
         if (job.status === "completed") {
           setUploadProgress(100);
           setArchiveId(job.archiveId);
-          toast.success("File uploaded — proceeding to next step");
+          toast.success("File uploaded - proceeding to next step");
           advance();
           return;
         }
@@ -435,7 +451,6 @@ export function PrintJobModal({
             : { mode: "any" },
       filamentConstraints: constraints,
       options: {
-        manualStart,
         timelapse,
         bedLevelling,
         vibrationCali: true,
@@ -494,15 +509,33 @@ export function PrintJobModal({
       ? uploadFile.name
       : (selectedArchive?.print_name ??
         selectedArchive?.filename ??
-        (archiveId ? `#${archiveId}` : "—"));
+        (archiveId ? `#${archiveId}` : "-"));
 
   const availablePrinterSlots = printerAms?.slots ?? [];
 
-  // Color options for a type when targeting a specific printer
+  // Color options for a type when targeting a specific printer. Named
+  // colours are deduplicated by hex (an AMS can have the same colour loaded
+  // in multiple slots); unrecognised trays are never deduplicated - every
+  // one is a distinct physical tray needing its own name.
   function getPrinterColorsForType(reqType: string) {
-    return availablePrinterSlots.filter((s) =>
+    const filtered = availablePrinterSlots.filter((s) =>
       filamentTypeMatches(s.trayType, reqType),
     );
+    const seen = new Set<string>();
+    const known: typeof filtered = [];
+    const unknown: typeof filtered = [];
+    for (const s of filtered) {
+      if (s.colorName) {
+        const key = (s.trayColor ?? "NOCOLOR").slice(0, 6).toUpperCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          known.push(s);
+        }
+      } else {
+        unknown.push(s);
+      }
+    }
+    return { known, unknown };
   }
 
   function filamentTypeMatches(
@@ -515,7 +548,9 @@ export function PrintJobModal({
     return a === b || a.startsWith(b + " ") || b.startsWith(a + " ");
   }
 
-  // Deduplicated color options for a type across all compatible printers
+  // Color options for a type across all compatible printers. Named colours
+  // are deduplicated by hex (keeping the fullest spool); unrecognised trays
+  // are never deduplicated - every one is a distinct physical tray.
   function getMultiPrinterColorsForType(reqType: string) {
     const filtered = multiPrinterFilaments.filter((f) => {
       if (!filamentTypeMatches(f.tray_type, reqType)) return false;
@@ -524,15 +559,28 @@ export function PrintJobModal({
       return true;
     });
     const seen = new Map<string, (typeof filtered)[0]>();
+    const unknown: typeof filtered = [];
     for (const f of filtered) {
-      const key = (f.tray_color ?? "NOCOLOR").slice(0, 6).toUpperCase();
-      const existing = seen.get(key);
-      if (!existing || f.remain > existing.remain) seen.set(key, f);
+      if (f.spool_color_name) {
+        const key = (f.tray_color ?? "NOCOLOR").slice(0, 6).toUpperCase();
+        const existing = seen.get(key);
+        if (!existing || f.remain > existing.remain) seen.set(key, f);
+      } else {
+        unknown.push(f);
+      }
     }
-    return [...seen.values()];
+    return { known: [...seen.values()], unknown };
   }
 
-  function selectColor(slotIdx: number, colorHex: string, colorName?: string) {
+  const overrideFilamentToFullMutation =
+    trpc.printQueue.overrideFilamentToFull.useMutation();
+
+  function selectColor(
+    slotIdx: number,
+    colorHex: string,
+    filamentType: string,
+    colorName?: string,
+  ) {
     setSlotSelections((prev) => {
       const next = new Map(prev);
       const current = next.get(slotIdx);
@@ -540,6 +588,9 @@ export function PrintJobModal({
         next.set(slotIdx, { mode: "any" });
       } else {
         next.set(slotIdx, { mode: "color", colorHex, colorName });
+        // Filament remaining is not tracked for print blocking - reset every
+        // matching spool (any printer) to 100% as soon as it's chosen.
+        overrideFilamentToFullMutation.mutate({ filamentType, colorHex });
       }
       return next;
     });
@@ -557,833 +608,1322 @@ export function PrintJobModal({
     (s) => s.mode === "color",
   );
 
+  // ── Colour naming popup ──────────────────────────────────────────────
+  interface NamingLocation {
+    printerId: number;
+    printerName: string;
+    amsId: number;
+    trayId: number;
+  }
+
+  const [namingTarget, setNamingTarget] = useState<{
+    filamentType: string;
+    hex: string;
+    locations: NamingLocation[];
+    // True only for the "Can't find your filament?" flow, where the slot's
+    // type isn't already known from a filament requirement - the user must
+    // supply it themselves rather than it being locked from context.
+    editableType: boolean;
+  } | null>(null);
+  const [namingLocationIdx, setNamingLocationIdx] = useState(0);
+  const [namingTypeInput, setNamingTypeInput] = useState("");
+  const [namingNameInput, setNamingNameInput] = useState("");
+  const [namingHexInput, setNamingHexInput] = useState("");
+  const [locationSelectOpen, setLocationSelectOpen] = useState(false);
+
+  // "Can't find your filament?" - manual printer/slot lookup independent of
+  // the current filament requirements, for registering or correcting a slot
+  // that isn't showing up (or showing wrong) in the picker above.
+  const [findFilamentOpen, setFindFilamentOpen] = useState(false);
+  const [findPrinterId, setFindPrinterId] = useState<number | null>(null);
+  const findPrinterAmsQuery = trpc.printQueue.getPrinterAms.useQuery(
+    { printerId: findPrinterId! },
+    { enabled: findFilamentOpen && findPrinterId != null },
+  );
+
+  function formatSlotLabel(loc: NamingLocation): string {
+    return loc.amsId === 255
+      ? `External Spool ${loc.trayId + 1}`
+      : `AMS${loc.amsId}`;
+  }
+
+  const utils = trpc.useUtils();
+  const nameFilamentColorMutation =
+    trpc.printQueue.nameFilamentColor.useMutation({
+      onSuccess: () => {
+        toast.success("Colour saved");
+        void utils.printQueue.getPrinterAms.invalidate();
+        void utils.printQueue.getAvailableFilamentsForModel.invalidate();
+        setNamingTarget(null);
+      },
+      onError: (err) => {
+        toast.error(err.message || "Failed to save colour");
+      },
+    });
+
+  function openNamingPopup(
+    filamentType: string,
+    hex: string,
+    currentName: string | null,
+  ) {
+    const normalizedHex = hex.slice(0, 6).toUpperCase();
+    const locations: NamingLocation[] = [];
+
+    if (isMultiPrinterFilamentStep) {
+      for (const f of multiPrinterFilaments) {
+        if (!filamentTypeMatches(f.tray_type, filamentType)) continue;
+        if ((f.tray_color ?? "").slice(0, 6).toUpperCase() !== normalizedHex)
+          continue;
+        locations.push({
+          printerId: f.printer_id,
+          printerName: f.printer_name,
+          amsId: f.ams_id,
+          trayId: f.tray_id,
+        });
+      }
+    } else if (selectedPrinterId != null) {
+      for (const s of availablePrinterSlots) {
+        if (!filamentTypeMatches(s.trayType, filamentType)) continue;
+        if ((s.trayColor ?? "").slice(0, 6).toUpperCase() !== normalizedHex)
+          continue;
+        locations.push({
+          printerId: selectedPrinterId,
+          printerName: selectedPrinter?.name ?? `#${selectedPrinterId}`,
+          amsId: s.amsId,
+          trayId: s.trayId,
+        });
+      }
+    }
+
+    setNamingTarget({
+      filamentType,
+      hex: normalizedHex,
+      locations,
+      editableType: false,
+    });
+    setNamingLocationIdx(0);
+    setNamingTypeInput(filamentType);
+    setNamingNameInput(currentName ?? "");
+    setNamingHexInput(normalizedHex);
+    setLocationSelectOpen(false);
+  }
+
+  // Multiple unrecognised trays get grouped into one "N Unknown Filaments"
+  // row (their hexes are meaningless firmware placeholders, so they can't be
+  // grouped by colour). Opening it must force the user to pick a printer/AMS
+  // slot before naming - no default location, no prefilled name/hex.
+  function openUnknownNamingPopup(
+    filamentType: string,
+    locations: NamingLocation[],
+  ) {
+    setNamingTarget({
+      filamentType,
+      hex: "",
+      locations,
+      editableType: false,
+    });
+    setNamingLocationIdx(-1);
+    setNamingTypeInput(filamentType);
+    setNamingNameInput("");
+    setNamingHexInput("");
+    setLocationSelectOpen(locations.length > 1);
+  }
+
+  // Manual lookup flow: the user picked a specific printer/slot themselves
+  // (not derived from a filament requirement), so the type isn't known in
+  // advance - pre-fill from whatever's currently registered there, if
+  // anything, and let them edit or set it from scratch.
+  function openFindFilamentPopup(
+    location: NamingLocation,
+    current: { type: string; hex: string; colorName: string | null } | null,
+  ) {
+    const normalizedHex = (current?.hex ?? "").slice(0, 6).toUpperCase();
+    setNamingTarget({
+      filamentType: current?.type ?? "",
+      hex: normalizedHex,
+      locations: [location],
+      editableType: true,
+    });
+    setNamingLocationIdx(0);
+    setNamingTypeInput(current?.type ?? "");
+    setNamingNameInput(current?.colorName ?? "");
+    setNamingHexInput(normalizedHex);
+    setLocationSelectOpen(false);
+  }
+
+  // "PRNT001-AMS0,AMS3, PRNT010-AMS2" - one segment per printer, AMS ids
+  // grouped and sorted within it.
+  function formatUnknownLocations(locations: NamingLocation[]): string {
+    const byPrinter = new Map<number, { name: string; amsIds: number[] }>();
+    for (const loc of locations) {
+      const entry = byPrinter.get(loc.printerId) ?? {
+        name: loc.printerName,
+        amsIds: [],
+      };
+      if (!entry.amsIds.includes(loc.amsId)) entry.amsIds.push(loc.amsId);
+      byPrinter.set(loc.printerId, entry);
+    }
+    return [...byPrinter.values()]
+      .map(
+        (e) =>
+          `${e.name}-AMS${[...e.amsIds].sort((a, b) => a - b).join(",AMS")}`,
+      )
+      .join(", ");
+  }
+
+  function submitNamingPopup() {
+    if (!namingTarget) return;
+    const location = namingTarget.locations[namingLocationIdx];
+    if (!location) return;
+    const type = namingTarget.editableType
+      ? namingTypeInput.trim()
+      : namingTarget.filamentType;
+    if (!type || !namingNameInput.trim() || !namingHexInput.trim()) return;
+
+    nameFilamentColorMutation.mutate({
+      printerId: location.printerId,
+      amsId: location.amsId,
+      trayId: location.trayId,
+      filamentType: type,
+      colorHex: namingHexInput.trim(),
+      colorName: namingNameInput.trim(),
+    });
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg w-full flex flex-col max-h-[85vh]">
-        <DialogHeader className="shrink-0">
-          <DialogTitle>Queue Print Job</DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-lg w-full flex flex-col max-h-[85vh]">
+          <DialogHeader className="shrink-0">
+            <DialogTitle>Queue Print Job</DialogTitle>
+          </DialogHeader>
 
-        <StepIndicator current={step} steps={STEPS} />
+          <StepIndicator current={step} steps={STEPS} />
 
-        <div className="flex-1 overflow-y-auto min-h-0 -mx-1 px-1">
-          {/* ── Step: archive ── */}
-          {step === "archive" && (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label>Project</Label>
-                <Popover
-                  open={projectComboOpen}
-                  onOpenChange={(o) => {
-                    setProjectComboOpen(o);
-                    if (!o) setProjectSearch("");
-                  }}
-                >
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={projectComboOpen}
-                      disabled={projectsLoading}
-                      className="w-full justify-between font-normal"
-                    >
-                      <span className="truncate">
-                        {projectsLoading
-                          ? "Loading projects…"
-                          : selectedProjectId === "__personal__"
-                            ? "Personal / No project"
-                            : selectedProjectId
-                              ? ((projects ?? []).find(
-                                  (p) => p.id === selectedProjectId,
-                                )?.name ?? "Select a project")
-                              : "Select a project"}
-                      </span>
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                    <Command shouldFilter={false}>
-                      <CommandInput
-                        placeholder="Search projects…"
-                        value={projectSearch}
-                        onValueChange={setProjectSearch}
-                      />
-                      <CommandList>
-                        <CommandEmpty>No project found.</CommandEmpty>
-                        <CommandGroup>
-                          {(() => {
-                            const q = projectSearch.toLowerCase();
-                            const showPersonal =
-                              !q || "personal / no project".includes(q);
-                            const filtered = (projects ?? []).filter(
-                              (p) =>
-                                p.name.trim() !== "" &&
-                                (!q || p.name.toLowerCase().includes(q)),
-                            );
-                            return (
-                              <>
-                                {showPersonal && (
-                                  <CommandItem
-                                    value="__personal__"
-                                    onSelect={() => {
-                                      setSelectedProjectId("__personal__");
-                                      setProjectComboOpen(false);
-                                      setProjectSearch("");
-                                    }}
-                                  >
-                                    <Check
-                                      className={`mr-2 h-4 w-4 ${selectedProjectId === "__personal__" ? "opacity-100" : "opacity-0"}`}
-                                    />
-                                    Personal / No project
-                                  </CommandItem>
-                                )}
-                                {filtered.map((project) => (
-                                  <CommandItem
-                                    key={project.id}
-                                    value={project.id}
-                                    onSelect={() => {
-                                      setSelectedProjectId(project.id);
-                                      setProjectComboOpen(false);
-                                      setProjectSearch("");
-                                    }}
-                                  >
-                                    <Check
-                                      className={`mr-2 h-4 w-4 ${selectedProjectId === project.id ? "opacity-100" : "opacity-0"}`}
-                                    />
-                                    {project.name}
-                                  </CommandItem>
-                                ))}
-                              </>
-                            );
-                          })()}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-                <p className="text-xs text-muted-foreground">
-                  Chosen before upload — it's baked into the file name sent to
-                  the printer.
-                </p>
-              </div>
-
-              <div className="flex gap-1 rounded-md border border-border p-1 bg-muted/50">
-                <button
-                  className={`flex-1 flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
-                    archiveSource === "existing"
-                      ? "bg-background shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => {
-                    setArchiveSource("existing");
-                    if (archiveSource !== "existing") {
-                      setUploadFile(null);
-                      setArchiveId(null);
-                    }
-                  }}
-                >
-                  <Library className="h-3.5 w-3.5" />
-                  Existing archive
-                </button>
-                <button
-                  className={`flex-1 flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
-                    archiveSource === "upload"
-                      ? "bg-background shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => {
-                    setArchiveSource("upload");
-                    if (archiveSource !== "upload") {
-                      setArchiveId(null);
-                    }
-                  }}
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  Upload .gcode.3mf
-                </button>
-              </div>
-
-              {archiveSource === "existing" && (
-                <>
-                  {archivesLoading && (
-                    <div className="space-y-2">
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <Skeleton key={i} className="h-10 w-full" />
-                      ))}
-                    </div>
-                  )}
-                  {!archivesLoading && (
-                    <div className="max-h-64 overflow-y-auto space-y-1 border border-border rounded-md p-2">
-                      {(archives ?? []).length === 0 && (
-                        <p className="text-sm text-muted-foreground text-center py-4">
-                          No archives found
-                        </p>
-                      )}
-                      {(archives ?? []).map((archive) => (
-                        <button
-                          key={archive.id}
-                          className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 min-w-0 ${
-                            archiveId === archive.id
-                              ? "bg-primary text-primary-foreground"
-                              : "hover:bg-accent"
-                          }`}
-                          onClick={() => setArchiveId(archive.id)}
-                        >
-                          <span className="font-mono text-xs opacity-60 shrink-0">
-                            #{archive.id}
-                          </span>
-                          <span className="break-words whitespace-normal flex-1 min-w-0">
-                            {archive.filename}
-                          </span>
-                          {archive.sliced_for_model && (
-                            <Badge
-                              variant="secondary"
-                              className="text-xs shrink-0"
-                            >
-                              {archive.sliced_for_model}
-                            </Badge>
-                          )}
-                          {archive.filament_type && (
-                            <Badge
-                              variant="outline"
-                              className="text-xs shrink-0"
-                            >
-                              {archive.filament_type}
-                            </Badge>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {archiveSource === "upload" && (
+          <div className="flex-1 overflow-y-auto min-h-0 -mx-1 px-1">
+            {/* ── Step: archive ── */}
+            {step === "archive" && (
+              <div className="space-y-3">
                 <div className="space-y-2">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".gcode.3mf"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] ?? null;
-                      if (f && !acceptUploadFile(f)) {
-                        if (fileInputRef.current)
-                          fileInputRef.current.value = "";
-                        return;
-                      }
-                      setUploadFile(f);
-                      setArchiveId(null);
+                  <Label>Project</Label>
+                  <Popover
+                    open={projectComboOpen}
+                    onOpenChange={(o) => {
+                      setProjectComboOpen(o);
+                      if (!o) setProjectSearch("");
                     }}
-                  />
-                  {!uploadFile ? (
-                    <div
-                      className={`w-full border-2 border-dashed rounded-md p-8 text-center text-sm transition-colors cursor-pointer ${
-                        isDraggingFile
-                          ? "border-primary bg-primary/5 text-foreground"
-                          : "border-border text-muted-foreground hover:border-primary hover:text-foreground"
-                      }`}
-                      onClick={() => fileInputRef.current?.click()}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsDraggingFile(true);
-                      }}
-                      onDragLeave={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsDraggingFile(false);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsDraggingFile(false);
-                        const f = e.dataTransfer.files[0] ?? null;
-                        if (f && acceptUploadFile(f)) {
-                          setUploadFile(f);
-                          setArchiveId(null);
-                        }
-                      }}
-                    >
-                      <Upload className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                      {isDraggingFile
-                        ? "Drop to upload"
-                        : "Drag & drop or click to select a .gcode.3mf file"}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 min-w-0">
-                        <Upload className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate flex-1 min-w-0 text-sm">
-                          {uploadFile.name}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={projectComboOpen}
+                        disabled={projectsLoading}
+                        className="w-full justify-between font-normal"
+                      >
+                        <span className="truncate">
+                          {projectsLoading
+                            ? "Loading projects…"
+                            : selectedProjectId === "__personal__"
+                              ? "Personal / No project"
+                              : selectedProjectId
+                                ? ((projects ?? []).find(
+                                    (p) => p.id === selectedProjectId,
+                                  )?.name ?? "Select a project")
+                                : "Select a project"}
                         </span>
-                        <span className="text-xs text-muted-foreground shrink-0">
-                          {(uploadFile.size / 1024 / 1024).toFixed(1)} MB
-                        </span>
-                        {!uploading && (
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                      <Command shouldFilter={false}>
+                        <CommandInput
+                          placeholder="Search projects…"
+                          value={projectSearch}
+                          onValueChange={setProjectSearch}
+                        />
+                        <CommandList>
+                          <CommandEmpty>No project found.</CommandEmpty>
+                          <CommandGroup>
+                            {(() => {
+                              const q = projectSearch.toLowerCase();
+                              const showPersonal =
+                                !q || "personal / no project".includes(q);
+                              const filtered = (projects ?? []).filter(
+                                (p) =>
+                                  p.name.trim() !== "" &&
+                                  (!q || p.name.toLowerCase().includes(q)),
+                              );
+                              return (
+                                <>
+                                  {showPersonal && (
+                                    <CommandItem
+                                      value="__personal__"
+                                      onSelect={() => {
+                                        setSelectedProjectId("__personal__");
+                                        setProjectComboOpen(false);
+                                        setProjectSearch("");
+                                      }}
+                                    >
+                                      <Check
+                                        className={`mr-2 h-4 w-4 ${selectedProjectId === "__personal__" ? "opacity-100" : "opacity-0"}`}
+                                      />
+                                      Personal / No project
+                                    </CommandItem>
+                                  )}
+                                  {filtered.map((project) => (
+                                    <CommandItem
+                                      key={project.id}
+                                      value={project.id}
+                                      onSelect={() => {
+                                        setSelectedProjectId(project.id);
+                                        setProjectComboOpen(false);
+                                        setProjectSearch("");
+                                      }}
+                                    >
+                                      <Check
+                                        className={`mr-2 h-4 w-4 ${selectedProjectId === project.id ? "opacity-100" : "opacity-0"}`}
+                                      />
+                                      {project.name}
+                                    </CommandItem>
+                                  ))}
+                                </>
+                              );
+                            })()}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="flex gap-1 rounded-md border border-border p-1 bg-muted/50">
+                  <button
+                    className={`flex-1 flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                      archiveSource === "existing"
+                        ? "bg-background shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    onClick={() => {
+                      setArchiveSource("existing");
+                      if (archiveSource !== "existing") {
+                        setUploadFile(null);
+                        setArchiveId(null);
+                      }
+                    }}
+                  >
+                    <Library className="h-3.5 w-3.5" />
+                    Existing archive
+                  </button>
+                  <button
+                    className={`flex-1 flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                      archiveSource === "upload"
+                        ? "bg-background shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    onClick={() => {
+                      setArchiveSource("upload");
+                      if (archiveSource !== "upload") {
+                        setArchiveId(null);
+                      }
+                    }}
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Upload .gcode.3mf
+                  </button>
+                </div>
+
+                {archiveSource === "existing" && (
+                  <>
+                    {archivesLoading && (
+                      <div className="space-y-2">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Skeleton key={i} className="h-10 w-full" />
+                        ))}
+                      </div>
+                    )}
+                    {!archivesLoading && (
+                      <div className="max-h-64 overflow-y-auto space-y-1 border border-border rounded-md p-2">
+                        {(archives ?? []).length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No archives found
+                          </p>
+                        )}
+                        {(archives ?? []).map((archive) => (
                           <button
-                            className="shrink-0 text-muted-foreground hover:text-foreground"
-                            onClick={() => {
-                              setUploadFile(null);
-                              setArchiveId(null);
-                              if (fileInputRef.current)
-                                fileInputRef.current.value = "";
-                            }}
+                            key={archive.id}
+                            className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 min-w-0 ${
+                              archiveId === archive.id
+                                ? "bg-primary text-primary-foreground"
+                                : "hover:bg-accent"
+                            }`}
+                            onClick={() => setArchiveId(archive.id)}
                           >
-                            <X className="h-4 w-4" />
+                            <span className="font-mono text-xs opacity-60 shrink-0">
+                              #{archive.id}
+                            </span>
+                            <span className="break-words whitespace-normal flex-1 min-w-0">
+                              {archive.filename}
+                            </span>
+                            {archive.sliced_for_model && (
+                              <Badge
+                                variant="secondary"
+                                className="text-xs shrink-0"
+                              >
+                                {archive.sliced_for_model}
+                              </Badge>
+                            )}
+                            {archive.filament_type && (
+                              <Badge
+                                variant="outline"
+                                className="text-xs shrink-0"
+                              >
+                                {archive.filament_type}
+                              </Badge>
+                            )}
                           </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {archiveSource === "upload" && (
+                  <div className="space-y-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".gcode.3mf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] ?? null;
+                        if (f && !acceptUploadFile(f)) {
+                          if (fileInputRef.current)
+                            fileInputRef.current.value = "";
+                          return;
+                        }
+                        setUploadFile(f);
+                        setArchiveId(null);
+                      }}
+                    />
+                    {!uploadFile ? (
+                      <div
+                        className={`w-full border-2 border-dashed rounded-md p-8 text-center text-sm transition-colors cursor-pointer ${
+                          isDraggingFile
+                            ? "border-primary bg-primary/5 text-foreground"
+                            : "border-border text-muted-foreground hover:border-primary hover:text-foreground"
+                        }`}
+                        onClick={() => fileInputRef.current?.click()}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsDraggingFile(true);
+                        }}
+                        onDragLeave={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsDraggingFile(false);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsDraggingFile(false);
+                          const f = e.dataTransfer.files[0] ?? null;
+                          if (f && acceptUploadFile(f)) {
+                            setUploadFile(f);
+                            setArchiveId(null);
+                          }
+                        }}
+                      >
+                        <Upload className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                        {isDraggingFile
+                          ? "Drop to upload"
+                          : "Drag & drop or click to select a .gcode.3mf file"}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 min-w-0">
+                          <Upload className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate flex-1 min-w-0 text-sm">
+                            {uploadFile.name}
+                          </span>
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            {(uploadFile.size / 1024 / 1024).toFixed(1)} MB
+                          </span>
+                          {!uploading && (
+                            <button
+                              className="shrink-0 text-muted-foreground hover:text-foreground"
+                              onClick={() => {
+                                setUploadFile(null);
+                                setArchiveId(null);
+                                if (fileInputRef.current)
+                                  fileInputRef.current.value = "";
+                              }}
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                        {uploading && (
+                          <div className="space-y-1">
+                            <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-out"
+                                style={{ width: `${uploadProgress}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {uploadPhase === "sending"
+                                ? `Sending… ${uploadProgress}%`
+                                : `Processing on printer server… ${uploadProgress}%`}
+                            </p>
+                          </div>
                         )}
                       </div>
-                      {uploading && (
-                        <div className="space-y-1">
-                          <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-out"
-                              style={{ width: `${uploadProgress}%` }}
-                            />
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {uploadPhase === "sending"
-                              ? `Sending… ${uploadProgress}%`
-                              : `Processing on printer server… ${uploadProgress}%`}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    .gcode.3mf files exported from Bambu Studio or Orca Slicer
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Step: targeting ── */}
-          {step === "targeting" && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Printer targeting</Label>
-                <Select
-                  value={targetingMode}
-                  onValueChange={(v) => setTargetingMode(v as TargetingMode)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="model">
-                      Specific printer model
-                    </SelectItem>
-                    <SelectItem value="printer">Specific printer</SelectItem>
-                  </SelectContent>
-                </Select>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      .gcode.3mf files exported from Bambu Studio or Orca Slicer
+                    </p>
+                  </div>
+                )}
               </div>
+            )}
 
-              {targetingMode === "model" && (
+            {/* ── Step: targeting ── */}
+            {step === "targeting" && (
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Printer model</Label>
-                  {printersLoading ? (
-                    <Skeleton className="h-9 w-full" />
-                  ) : (
-                    <Select
-                      value={selectedModel}
-                      onValueChange={setSelectedModel}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select model…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {printerModels.map((m) => (
-                          <SelectItem key={m} value={m}>
-                            {m}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
+                  <Label>Targeting Mode</Label>
+                  <Select
+                    value={targetingMode}
+                    onValueChange={(v) => setTargetingMode(v as TargetingMode)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="model">Printer Model</SelectItem>
+                      <SelectItem value="printer">Specific Printer</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
 
-              {targetingMode === "printer" && (
-                <div className="space-y-2">
-                  <Label>Printer</Label>
-                  {printersLoading ? (
-                    <Skeleton className="h-9 w-full" />
-                  ) : (
-                    <Select
-                      value={selectedPrinterId?.toString() ?? ""}
-                      onValueChange={(v) => setSelectedPrinterId(Number(v))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select printer…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(printers ?? []).map((p) => (
-                          <SelectItem key={p.id} value={String(p.id)}>
-                            {p.name}
-                            {p.model ? ` (${p.model})` : ""}
-                            {p.location ? ` — ${p.location}` : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Step: filament ── */}
-          {step === "filament" && (
-            <div className="space-y-3">
-              {targetingMode === "any" ? (
-                <p className="text-sm text-muted-foreground">
-                  Colour selection is not available when targeting any printer —
-                  Bambuddy picks the best available filament automatically.
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Optionally restrict each required filament type to a specific
-                  colour. Leave as "Any" to let Bambuddy pick automatically.
-                </p>
-              )}
-
-              {reqsLoading && <Skeleton className="h-24 w-full" />}
-
-              {!reqsLoading && (!filamentReqs || filamentReqs.length === 0) && (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No filament requirements found for this archive.
-                </p>
-              )}
-
-              {/* Any-targeting: show types as info only, no colour picker */}
-              {!reqsLoading &&
-                filamentReqs &&
-                filamentReqs.length > 0 &&
-                targetingMode === "any" && (
+                {targetingMode === "model" && (
                   <div className="space-y-2">
-                    {filamentReqs.map((req, slotIdx) => {
-                      if (!req.type) return null;
-                      const typeCount = slotTypeCounts.get(req.type) ?? 1;
-                      const slotNum = slotTypeIndices.get(slotIdx) ?? 1;
-                      return (
-                        <div
-                          key={slotIdx}
-                          className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm"
-                        >
-                          <Badge
-                            variant="secondary"
-                            className="text-xs font-mono shrink-0"
-                          >
-                            {req.type}
-                          </Badge>
-                          {typeCount > 1 && (
-                            <span className="text-xs text-muted-foreground">
-                              {slotNum} of {typeCount}
-                            </span>
-                          )}
-                          <span className="ml-auto text-xs text-muted-foreground">
-                            Any colour
-                          </span>
-                        </div>
-                      );
-                    })}
+                    <Label>Model</Label>
+                    {printersLoading ? (
+                      <Skeleton className="h-9 w-full" />
+                    ) : (
+                      <Select
+                        value={selectedModel}
+                        onValueChange={setSelectedModel}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select model…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {printerModels.map((m) => (
+                            <SelectItem key={m} value={m}>
+                              {m}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 )}
 
-              {!reqsLoading &&
-                filamentReqs &&
-                filamentReqs.length > 0 &&
-                targetingMode !== "any" &&
-                (() => {
-                  const isMultiPrinter = targetingMode !== "printer";
-                  const multiLoading =
-                    targetingMode === "model" && !modelFilaments;
-                  const printerLoading =
-                    targetingMode === "printer" && !printerAms;
+                {targetingMode === "printer" && (
+                  <div className="space-y-2">
+                    <Label>Printer</Label>
+                    {printersLoading ? (
+                      <Skeleton className="h-9 w-full" />
+                    ) : (
+                      <Select
+                        value={selectedPrinterId?.toString() ?? ""}
+                        onValueChange={(v) => setSelectedPrinterId(Number(v))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select printer…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(printers ?? []).map((p) => (
+                            <SelectItem key={p.id} value={String(p.id)}>
+                              {p.name}
+                              {p.model ? ` (${p.model})` : ""}
+                              {p.location ? ` - ${p.location}` : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
-                  return (
-                    <div className="space-y-3">
+            {/* ── Step: filament ── */}
+            {step === "filament" && (
+              <div className="space-y-3">
+                {targetingMode === "any" ? (
+                  <p className="text-sm text-muted-foreground">
+                    Colour selection is not available when targeting any printer
+                    - Bambuddy picks the best available filament automatically.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Optionally restrict each required filament type to a
+                    specific colour. Leave as "Any" to let Bambuddy pick
+                    automatically.
+                  </p>
+                )}
+
+                {reqsLoading && <Skeleton className="h-24 w-full" />}
+
+                {!reqsLoading &&
+                  (!filamentReqs || filamentReqs.length === 0) && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No filament requirements found for this archive.
+                    </p>
+                  )}
+
+                {/* Any-targeting: show types as info only, no colour picker */}
+                {!reqsLoading &&
+                  filamentReqs &&
+                  filamentReqs.length > 0 &&
+                  targetingMode === "any" && (
+                    <div className="space-y-2">
                       {filamentReqs.map((req, slotIdx) => {
-                        const type = req.type;
-                        if (!type) return null;
-                        const sel = slotSelections.get(slotIdx) ?? {
-                          mode: "any" as const,
-                        };
-                        const isColorSelected = sel.mode === "color";
-                        const typeCount = slotTypeCounts.get(type) ?? 1;
+                        if (!req.type) return null;
+                        const typeCount = slotTypeCounts.get(req.type) ?? 1;
                         const slotNum = slotTypeIndices.get(slotIdx) ?? 1;
-
-                        const printerColors = !isMultiPrinter
-                          ? getPrinterColorsForType(type)
-                          : [];
-                        const multiColors = isMultiPrinter
-                          ? getMultiPrinterColorsForType(type)
-                          : [];
-                        const colors = isMultiPrinter
-                          ? multiColors
-                          : printerColors;
-                        const loading = isMultiPrinter
-                          ? multiLoading
-                          : printerLoading;
-
                         return (
                           <div
                             key={slotIdx}
-                            className="rounded-md border border-border p-3 space-y-2.5"
+                            className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm"
                           >
-                            {/* Slot header */}
-                            <div className="flex items-center gap-2">
-                              <Badge
-                                variant="secondary"
-                                className="text-xs font-mono"
-                              >
-                                {type}
-                              </Badge>
-                              {typeCount > 1 && (
-                                <span className="text-xs text-muted-foreground">
-                                  {slotNum} of {typeCount}
-                                </span>
-                              )}
-                              {isColorSelected && (
-                                <button
-                                  className="ml-auto text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                                  onClick={() => clearColor(slotIdx)}
-                                >
-                                  <X className="h-3 w-3" />
-                                  Clear
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Selected color display */}
-                            {isColorSelected && sel.colorHex && (
-                              <div className="flex items-center gap-2 rounded-md bg-primary/10 px-2.5 py-1.5 text-sm">
-                                <ColorSwatch
-                                  hex={sel.colorHex.replace("#", "")}
-                                />
-                                <span className="font-medium">
-                                  {sel.colorName ?? sel.colorHex}
-                                </span>
-                                <Check className="h-3.5 w-3.5 text-primary ml-auto" />
-                              </div>
+                            <Badge
+                              variant="secondary"
+                              className="text-xs font-mono shrink-0"
+                            >
+                              {req.type}
+                            </Badge>
+                            {typeCount > 1 && (
+                              <span className="text-xs text-muted-foreground">
+                                {slotNum} of {typeCount}
+                              </span>
                             )}
+                            <span className="ml-auto text-xs text-muted-foreground">
+                              Any colour
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
-                            {/* Color grid */}
-                            {loading ? (
-                              <p className="text-xs text-muted-foreground">
-                                Loading available colours…
-                              </p>
-                            ) : colors.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">
-                                No {type} available
-                                {targetingMode === "printer"
-                                  ? " on this printer"
-                                  : ""}
-                                . Print will use any compatible spool.
-                              </p>
-                            ) : (
-                              <div className="space-y-1">
-                                {/* "Any" option */}
-                                <button
-                                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm transition-colors ${
-                                    !isColorSelected
-                                      ? "bg-primary text-primary-foreground"
-                                      : "hover:bg-accent text-muted-foreground"
-                                  }`}
-                                  onClick={() => clearColor(slotIdx)}
-                                >
-                                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-sm border-2 border-dashed border-current opacity-50 shrink-0" />
-                                  <span>Any {type}</span>
-                                  {!isColorSelected && (
-                                    <Check className="h-3.5 w-3.5 ml-auto" />
-                                  )}
-                                </button>
+                {!reqsLoading &&
+                  filamentReqs &&
+                  filamentReqs.length > 0 &&
+                  targetingMode !== "any" &&
+                  (() => {
+                    const isMultiPrinter = targetingMode !== "printer";
+                    const multiLoading =
+                      targetingMode === "model" && !modelFilaments;
+                    const printerLoading =
+                      targetingMode === "printer" && !printerAms;
 
-                                {/* Color options */}
-                                {(() => {
-                                  if (
-                                    isMultiPrinter &&
-                                    possiblePrinterIds?.size === 0
-                                  ) {
-                                    return (
-                                      <div className="flex gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
-                                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
-                                        <span>
-                                          No printer currently has all selected
-                                          colours — job will wait until one
-                                          becomes available.
-                                        </span>
-                                      </div>
-                                    );
+                    return (
+                      <div className="space-y-3">
+                        {filamentReqs.map((req, slotIdx) => {
+                          const type = req.type;
+                          if (!type) return null;
+                          const sel = slotSelections.get(slotIdx) ?? {
+                            mode: "any" as const,
+                          };
+                          const isColorSelected = sel.mode === "color";
+                          const typeCount = slotTypeCounts.get(type) ?? 1;
+                          const slotNum = slotTypeIndices.get(slotIdx) ?? 1;
+
+                          const printerColors = !isMultiPrinter
+                            ? getPrinterColorsForType(type)
+                            : { known: [], unknown: [] };
+                          const multiColors = isMultiPrinter
+                            ? getMultiPrinterColorsForType(type)
+                            : { known: [], unknown: [] };
+                          const colors = isMultiPrinter
+                            ? multiColors
+                            : printerColors;
+                          const loading = isMultiPrinter
+                            ? multiLoading
+                            : printerLoading;
+
+                          const unknownLocations: NamingLocation[] =
+                            colors.unknown.map((opt) =>
+                              isMultiPrinter
+                                ? {
+                                    printerId: (
+                                      opt as (typeof multiColors)["unknown"][0]
+                                    ).printer_id,
+                                    printerName: (
+                                      opt as (typeof multiColors)["unknown"][0]
+                                    ).printer_name,
+                                    amsId: (
+                                      opt as (typeof multiColors)["unknown"][0]
+                                    ).ams_id,
+                                    trayId: (
+                                      opt as (typeof multiColors)["unknown"][0]
+                                    ).tray_id,
                                   }
+                                : {
+                                    printerId: selectedPrinterId!,
+                                    printerName:
+                                      selectedPrinter?.name ??
+                                      `#${selectedPrinterId}`,
+                                    amsId: (
+                                      opt as (typeof printerColors)["unknown"][0]
+                                    ).amsId,
+                                    trayId: (
+                                      opt as (typeof printerColors)["unknown"][0]
+                                    ).trayId,
+                                  },
+                            );
 
-                                  return (
-                                    <div className="grid grid-cols-1 gap-0.5 max-h-40 overflow-y-auto">
-                                      {(isMultiPrinter
-                                        ? multiColors
-                                        : printerColors
-                                      ).map((opt, fi) => {
-                                        const hex = isMultiPrinter
-                                          ? ((opt as (typeof multiColors)[0])
-                                              .tray_color ?? "")
-                                          : ((opt as (typeof printerColors)[0])
-                                              .trayColor ?? "");
-                                        const subBrands = isMultiPrinter
-                                          ? (opt as (typeof multiColors)[0])
-                                              .tray_sub_brands
-                                          : (opt as (typeof printerColors)[0])
-                                              .traySubBrands;
-                                        const idName = isMultiPrinter
-                                          ? (opt as (typeof multiColors)[0])
-                                              .tray_id_name
-                                          : (opt as (typeof printerColors)[0])
-                                              .trayIdName;
-                                        const name = subBrands ?? idName;
-                                        const remain = isMultiPrinter
-                                          ? (opt as (typeof multiColors)[0])
-                                              .remain
-                                          : (opt as (typeof printerColors)[0])
-                                              .remain;
+                          return (
+                            <div
+                              key={slotIdx}
+                              className="rounded-md border border-border p-3 space-y-2.5"
+                            >
+                              {/* Slot header */}
+                              <div className="flex items-center gap-2">
+                                <Badge
+                                  variant="secondary"
+                                  className="text-xs font-mono"
+                                >
+                                  {type}
+                                </Badge>
+                                {typeCount > 1 && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {slotNum} of {typeCount}
+                                  </span>
+                                )}
+                                {isColorSelected && (
+                                  <button
+                                    className="ml-auto text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                                    onClick={() => clearColor(slotIdx)}
+                                  >
+                                    <X className="h-3 w-3" />
+                                    Clear
+                                  </button>
+                                )}
+                              </div>
 
-                                        const normalHex = hex
-                                          .slice(0, 6)
-                                          .toUpperCase();
-                                        const selectedHex = (sel.colorHex ?? "")
-                                          .slice(0, 6)
-                                          .toUpperCase();
-                                        const isSelected =
-                                          isColorSelected &&
-                                          normalHex === selectedHex;
+                              {/* Selected color display */}
+                              {isColorSelected && sel.colorHex && (
+                                <div className="flex items-center gap-2 rounded-md bg-primary/10 px-2.5 py-1.5 text-sm">
+                                  <ColorSwatch
+                                    hex={sel.colorHex.replace("#", "")}
+                                  />
+                                  <span className="font-medium">
+                                    {sel.colorName ?? sel.colorHex}
+                                  </span>
+                                  <Check className="h-3.5 w-3.5 text-primary ml-auto" />
+                                </div>
+                              )}
 
-                                        return (
-                                          <button
-                                            key={fi}
-                                            className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm transition-colors min-w-0 ${
-                                              isSelected
-                                                ? "bg-primary text-primary-foreground"
-                                                : "hover:bg-accent"
-                                            }`}
-                                            onClick={() =>
-                                              selectColor(
-                                                slotIdx,
-                                                hex,
-                                                name ?? undefined,
-                                              )
-                                            }
-                                          >
-                                            {hex ? (
-                                              <ColorSwatch hex={hex} />
-                                            ) : (
-                                              <span className="w-4 h-4 rounded-sm border border-dashed border-border shrink-0" />
-                                            )}
+                              {/* Color grid */}
+                              {loading ? (
+                                <p className="text-xs text-muted-foreground">
+                                  Loading available colours…
+                                </p>
+                              ) : colors.known.length === 0 &&
+                                colors.unknown.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">
+                                  No {type} available
+                                  {targetingMode === "printer"
+                                    ? " on this printer"
+                                    : ""}
+                                  . Print will use any compatible spool.
+                                </p>
+                              ) : (
+                                <div className="space-y-1">
+                                  {/* "Any" option */}
+                                  <button
+                                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm transition-colors ${
+                                      !isColorSelected
+                                        ? "bg-primary text-primary-foreground"
+                                        : "hover:bg-accent text-muted-foreground"
+                                    }`}
+                                    onClick={() => clearColor(slotIdx)}
+                                  >
+                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-sm border-2 border-dashed border-current opacity-50 shrink-0" />
+                                    <span>Any {type}</span>
+                                    {!isColorSelected && (
+                                      <Check className="h-3.5 w-3.5 ml-auto" />
+                                    )}
+                                  </button>
+
+                                  {/* Color options */}
+                                  {(() => {
+                                    if (
+                                      isMultiPrinter &&
+                                      possiblePrinterIds?.size === 0
+                                    ) {
+                                      return (
+                                        <div className="flex gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
+                                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                                          <span>
+                                            No printer currently has all
+                                            selected colours - job will wait
+                                            until one becomes available.
+                                          </span>
+                                        </div>
+                                      );
+                                    }
+
+                                    return (
+                                      <div className="grid grid-cols-1 gap-0.5 max-h-40 overflow-y-auto">
+                                        {(isMultiPrinter
+                                          ? multiColors.known
+                                          : printerColors.known
+                                        ).map((opt, fi) => {
+                                          const hex = isMultiPrinter
+                                            ? ((
+                                                opt as (typeof multiColors)["known"][0]
+                                              ).tray_color ?? "")
+                                            : ((
+                                                opt as (typeof printerColors)["known"][0]
+                                              ).trayColor ?? "");
+                                          // tray_sub_brands/tray_id_name from
+                                          // the AMS often just repeat the
+                                          // material (e.g. "PLA Matte") for
+                                          // manually-loaded spools rather
+                                          // than a real colour name - the
+                                          // assigned spool's colour_name is
+                                          // the only trustworthy source.
+                                          const name = isMultiPrinter
+                                            ? (
+                                                opt as (typeof multiColors)["known"][0]
+                                              ).spool_color_name
+                                            : (
+                                                opt as (typeof printerColors)["known"][0]
+                                              ).colorName;
+                                          const normalHex = hex
+                                            .slice(0, 6)
+                                            .toUpperCase();
+                                          const selectedHex = (
+                                            sel.colorHex ?? ""
+                                          )
+                                            .slice(0, 6)
+                                            .toUpperCase();
+                                          const isSelected =
+                                            isColorSelected &&
+                                            normalHex === selectedHex;
+
+                                          return (
+                                            <div
+                                              key={fi}
+                                              role="button"
+                                              tabIndex={0}
+                                              className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm transition-colors min-w-0 cursor-pointer ${
+                                                isSelected
+                                                  ? "bg-primary text-primary-foreground"
+                                                  : "hover:bg-accent"
+                                              }`}
+                                              onClick={() =>
+                                                selectColor(
+                                                  slotIdx,
+                                                  hex,
+                                                  type,
+                                                  name ?? undefined,
+                                                )
+                                              }
+                                              onKeyDown={(e) => {
+                                                if (
+                                                  e.key !== "Enter" &&
+                                                  e.key !== " "
+                                                )
+                                                  return;
+                                                selectColor(
+                                                  slotIdx,
+                                                  hex,
+                                                  type,
+                                                  name ?? undefined,
+                                                );
+                                              }}
+                                            >
+                                              {hex ? (
+                                                <ColorSwatch hex={hex} />
+                                              ) : (
+                                                <span className="w-4 h-4 rounded-sm border border-dashed border-border shrink-0" />
+                                              )}
+                                              <span className="flex-1 text-left min-w-0 overflow-hidden">
+                                                <span className="block truncate">
+                                                  {name} - {type}
+                                                </span>
+                                              </span>
+                                              {isSelected && (
+                                                <Check className="h-3.5 w-3.5 shrink-0" />
+                                              )}
+                                              <button
+                                                type="button"
+                                                title="Edit colour"
+                                                className={`shrink-0 p-1 rounded-sm hover:bg-black/10 dark:hover:bg-white/10 ${
+                                                  isSelected
+                                                    ? ""
+                                                    : "text-muted-foreground"
+                                                }`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openNamingPopup(
+                                                    type,
+                                                    hex,
+                                                    name,
+                                                  );
+                                                }}
+                                              >
+                                                <Pencil className="h-3.5 w-3.5" />
+                                              </button>
+                                            </div>
+                                          );
+                                        })}
+
+                                        {/* Grouped row for every unrecognised
+                                            tray of this type - hexes are
+                                            meaningless firmware placeholders
+                                            so they can't be grouped by
+                                            colour */}
+                                        {colors.unknown.length > 0 && (
+                                          <div className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm min-w-0">
+                                            <span className="w-4 h-4 rounded-sm border border-dashed border-border shrink-0" />
                                             <span className="flex-1 text-left min-w-0 overflow-hidden">
                                               <span className="block truncate">
-                                                {subBrands ??
-                                                  (idName
-                                                    ? `${idName} - ${type}`
-                                                    : type)}
+                                                {colors.unknown.length} Unknown
+                                                Filament
+                                                {colors.unknown.length === 1
+                                                  ? ""
+                                                  : "s"}
                                               </span>
-                                              {subBrands && idName && (
-                                                <span className="block truncate text-xs opacity-50 font-mono">
-                                                  {idName}
-                                                </span>
-                                              )}
+                                              <span className="block truncate text-xs opacity-50">
+                                                {formatUnknownLocations(
+                                                  unknownLocations,
+                                                )}
+                                              </span>
                                             </span>
-                                            <span className="opacity-60 shrink-0 text-xs">
-                                              {remain}%
-                                            </span>
-                                            {isSelected && (
-                                              <Check className="h-3.5 w-3.5 shrink-0" />
-                                            )}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
+                                            <button
+                                              type="button"
+                                              title="Name these colours"
+                                              className="shrink-0 flex items-center gap-1 rounded-sm bg-amber-500 px-2 py-1 text-xs font-medium text-white hover:bg-amber-600"
+                                              onClick={() =>
+                                                openUnknownNamingPopup(
+                                                  type,
+                                                  unknownLocations,
+                                                )
+                                              }
+                                            >
+                                              <Tag className="h-3.5 w-3.5" />
+                                              Choose Colour
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Wait-for-colour hint for model targeting */}
+                        {isMultiPrinter && hasColorSelections && (
+                          <div className="flex gap-1.5 rounded-md border border-blue-400/40 bg-blue-50 dark:bg-blue-950/20 p-2.5 text-xs text-blue-700 dark:text-blue-400">
+                            <span>
+                              {possiblePrinterIds !== null &&
+                              possiblePrinterIds.size > 0
+                                ? `${possiblePrinterIds.size} printer${possiblePrinterIds.size === 1 ? "" : "s"} currently ${possiblePrinterIds.size === 1 ? "has" : "have"} all selected colours. `
+                                : ""}
+                              Job will wait for a printer with these exact
+                              colours loaded before dispatching.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                {!reqsLoading && filamentReqs && filamentReqs.length > 0 && (
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2 text-sm text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+                    onClick={() => setFindFilamentOpen(true)}
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    Can't find your filament?
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* ── Step: options ── */}
+            {step === "options" && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <Label>Bed levelling</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Run automatic bed levelling before print
+                    </p>
+                  </div>
+                  <Switch
+                    checked={bedLevelling}
+                    onCheckedChange={setBedLevelling}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <Label>Timelapse</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Record timelapse of this print
+                    </p>
+                  </div>
+                  <Switch checked={timelapse} onCheckedChange={setTimelapse} />
+                </div>
+              </div>
+            )}
+
+            {/* ── Step: confirm ── */}
+            {step === "confirm" && (
+              <div className="space-y-3">
+                <div className="rounded-md border border-border p-3 space-y-2 text-sm">
+                  <div className="flex justify-between gap-3 min-w-0">
+                    <span className="text-muted-foreground shrink-0">
+                      Archive
+                    </span>
+                    <span className="font-medium break-words text-right min-w-0">
+                      {archiveLabel}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3 min-w-0">
+                    <span className="text-muted-foreground shrink-0">
+                      Target
+                    </span>
+                    <span className="font-medium break-words text-right min-w-0">
+                      {targetingMode === "any"
+                        ? "Any available Bambu printer"
+                        : targetingMode === "model"
+                          ? `Model: ${selectedModel}`
+                          : `Printer: ${selectedPrinter?.name ?? selectedPrinterId}`}
+                    </span>
+                  </div>
+
+                  {/* Filament slot/colour summary */}
+                  {filamentReqs && filamentReqs.length > 0 && (
+                    <div className="space-y-1 pt-1 border-t border-border/50">
+                      {filamentReqs.map((req, slotIdx) => {
+                        if (!req.type) return null;
+                        const sel = slotSelections.get(slotIdx);
+                        const typeCount = slotTypeCounts.get(req.type) ?? 1;
+                        const slotNum = slotTypeIndices.get(slotIdx) ?? 1;
+                        return (
+                          <div
+                            key={slotIdx}
+                            className="flex items-center justify-between gap-3 min-w-0"
+                          >
+                            <span className="text-muted-foreground shrink-0 font-mono text-xs">
+                              {req.type}
+                              {typeCount > 1
+                                ? ` (${slotNum}/${typeCount})`
+                                : ""}
+                            </span>
+                            {sel?.mode === "color" && sel.colorHex ? (
+                              <span className="flex items-center gap-1.5 font-medium text-right min-w-0">
+                                <ColorSwatch
+                                  hex={sel.colorHex.replace("#", "")}
+                                  size="sm"
+                                />
+                                <span className="break-words min-w-0">
+                                  {sel.colorName ?? sel.colorHex}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">
+                                Any colour
+                              </span>
                             )}
                           </div>
                         );
                       })}
-
-                      {/* Wait-for-colour hint for model targeting */}
-                      {isMultiPrinter && hasColorSelections && (
-                        <div className="flex gap-1.5 rounded-md border border-blue-400/40 bg-blue-50 dark:bg-blue-950/20 p-2.5 text-xs text-blue-700 dark:text-blue-400">
-                          <span>
-                            {possiblePrinterIds !== null &&
-                            possiblePrinterIds.size > 0
-                              ? `${possiblePrinterIds.size} printer${possiblePrinterIds.size === 1 ? "" : "s"} currently ${possiblePrinterIds.size === 1 ? "has" : "have"} all selected colours. `
-                              : ""}
-                            Job will wait for a printer with these exact colours
-                            loaded before dispatching.
-                          </span>
-                        </div>
-                      )}
                     </div>
-                  );
-                })()}
-            </div>
+                  )}
+
+                  <div className="flex justify-between gap-3 min-w-0 pt-1 border-t border-border/50">
+                    <span className="text-muted-foreground shrink-0">
+                      Project
+                    </span>
+                    <span className="font-medium break-words text-right min-w-0">
+                      {selectedProjectId === "__personal__"
+                        ? "Personal / No project"
+                        : (selectedProject?.name ?? "-")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          {/* end scroll wrapper */}
+
+          {/* ── Navigation ── */}
+          <div className="flex justify-between pt-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={back}
+              disabled={step === STEPS[0]}
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Back
+            </Button>
+
+            {step !== "confirm" ? (
+              <Button
+                size="sm"
+                onClick={handleNext}
+                disabled={!canAdvance() || uploading}
+              >
+                {uploading ? `${uploadProgress}%` : "Next"}
+                {!uploading && <ChevronRight className="h-4 w-4 ml-1" />}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={handleSubmit}
+                disabled={addMutation.isPending || !selectedProjectId}
+              >
+                {addMutation.isPending ? "Queuing…" : "Queue print"}
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={namingTarget != null}
+        onOpenChange={(o) => {
+          if (!o) setNamingTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          {namingTarget && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {namingLocationIdx >= 0
+                    ? `Configuring ${namingTarget.locations[namingLocationIdx]?.printerName ?? "printer"} ${formatSlotLabel(namingTarget.locations[namingLocationIdx])}`
+                    : "Select a printer / slot"}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                {namingTarget.locations.length > 1 && (
+                  <div className="space-y-1.5">
+                    <Label>Printer / slot</Label>
+                    <Select
+                      value={
+                        namingLocationIdx >= 0
+                          ? String(namingLocationIdx)
+                          : undefined
+                      }
+                      onValueChange={(v) => setNamingLocationIdx(Number(v))}
+                      open={locationSelectOpen}
+                      onOpenChange={setLocationSelectOpen}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select printer / slot…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {namingTarget.locations.map((loc, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {loc.printerName} {formatSlotLabel(loc)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {namingTarget.editableType && (
+                  <div className="space-y-1.5">
+                    <Label>Filament type</Label>
+                    <Input
+                      value={namingTypeInput}
+                      onChange={(e) => setNamingTypeInput(e.target.value)}
+                      placeholder="e.g. PLA Matte"
+                      autoFocus
+                    />
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  <Label>Colour name</Label>
+                  <Input
+                    value={namingNameInput}
+                    onChange={(e) => setNamingNameInput(e.target.value)}
+                    placeholder="e.g. Bambu Black"
+                    disabled={namingLocationIdx < 0}
+                    autoFocus={
+                      namingLocationIdx >= 0 && !namingTarget.editableType
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Hex colour</Label>
+                  <div className="flex items-center gap-2">
+                    <ColorSwatch hex={namingHexInput || "FFFFFF"} />
+                    <Input
+                      value={namingHexInput}
+                      onChange={(e) => setNamingHexInput(e.target.value)}
+                      placeholder="RRGGBB"
+                      disabled={namingLocationIdx < 0}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setNamingTarget(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={submitNamingPopup}
+                  disabled={
+                    namingLocationIdx < 0 ||
+                    nameFilamentColorMutation.isPending ||
+                    !namingNameInput.trim() ||
+                    !namingHexInput.trim() ||
+                    (namingTarget.editableType && !namingTypeInput.trim())
+                  }
+                >
+                  {nameFilamentColorMutation.isPending ? "Saving…" : "Save"}
+                </Button>
+              </div>
+            </>
           )}
+        </DialogContent>
+      </Dialog>
 
-          {/* ── Step: options ── */}
-          {step === "options" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <Label>Manual start</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Queue without auto-dispatching — staff must start manually
-                  </p>
-                </div>
-                <Switch
-                  checked={manualStart}
-                  onCheckedChange={setManualStart}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <Label>Bed levelling</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Run automatic bed levelling before print
-                  </p>
-                </div>
-                <Switch
-                  checked={bedLevelling}
-                  onCheckedChange={setBedLevelling}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <Label>Timelapse</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Record timelapse of this print
-                  </p>
-                </div>
-                <Switch checked={timelapse} onCheckedChange={setTimelapse} />
-              </div>
+      <Dialog
+        open={findFilamentOpen}
+        onOpenChange={(o) => {
+          setFindFilamentOpen(o);
+          if (!o) setFindPrinterId(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Can't find your filament?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Printer</Label>
+              <Select
+                value={findPrinterId?.toString() ?? ""}
+                onValueChange={(v) => setFindPrinterId(Number(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select printer…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(printers ?? []).map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                      {p.model ? ` (${p.model})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          )}
 
-          {/* ── Step: confirm ── */}
-          {step === "confirm" && (
-            <div className="space-y-3">
-              <div className="rounded-md border border-border p-3 space-y-2 text-sm">
-                <div className="flex justify-between gap-3 min-w-0">
-                  <span className="text-muted-foreground shrink-0">
-                    Archive
-                  </span>
-                  <span className="font-medium break-words text-right min-w-0">
-                    {archiveLabel}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3 min-w-0">
-                  <span className="text-muted-foreground shrink-0">Target</span>
-                  <span className="font-medium break-words text-right min-w-0">
-                    {targetingMode === "any"
-                      ? "Any available Bambu printer"
-                      : targetingMode === "model"
-                        ? `Model: ${selectedModel}`
-                        : `Printer: ${selectedPrinter?.name ?? selectedPrinterId}`}
-                  </span>
-                </div>
-
-                {/* Filament slot/colour summary */}
-                {filamentReqs && filamentReqs.length > 0 && (
-                  <div className="space-y-1 pt-1 border-t border-border/50">
-                    {filamentReqs.map((req, slotIdx) => {
-                      if (!req.type) return null;
-                      const sel = slotSelections.get(slotIdx);
-                      const typeCount = slotTypeCounts.get(req.type) ?? 1;
-                      const slotNum = slotTypeIndices.get(slotIdx) ?? 1;
+            {findPrinterId != null && (
+              <div className="space-y-1">
+                <Label>Slot</Label>
+                {findPrinterAmsQuery.isLoading ? (
+                  <p className="text-xs text-muted-foreground">
+                    Loading slots…
+                  </p>
+                ) : (findPrinterAmsQuery.data?.slots ?? []).length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No slots found on this printer.
+                  </p>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {(findPrinterAmsQuery.data?.slots ?? []).map((s, i) => {
+                      const printerName =
+                        printers?.find((p) => p.id === findPrinterId)?.name ??
+                        `#${findPrinterId}`;
+                      const label =
+                        s.amsId === 255
+                          ? `External Spool ${s.trayId + 1}`
+                          : `AMS${s.amsId} Tray${s.trayId}`;
                       return (
-                        <div
-                          key={slotIdx}
-                          className="flex items-center justify-between gap-3 min-w-0"
+                        <button
+                          key={i}
+                          type="button"
+                          className="w-full flex items-center gap-2.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent text-left min-w-0"
+                          onClick={() => {
+                            openFindFilamentPopup(
+                              {
+                                printerId: findPrinterId,
+                                printerName,
+                                amsId: s.amsId,
+                                trayId: s.trayId,
+                              },
+                              s.trayType
+                                ? {
+                                    type: s.trayType,
+                                    hex: s.trayColor ?? "",
+                                    colorName: s.colorName,
+                                  }
+                                : null,
+                            );
+                            setFindFilamentOpen(false);
+                          }}
                         >
-                          <span className="text-muted-foreground shrink-0 font-mono text-xs">
-                            {req.type}
-                            {typeCount > 1 ? ` (${slotNum}/${typeCount})` : ""}
-                          </span>
-                          {sel?.mode === "color" && sel.colorHex ? (
-                            <span className="flex items-center gap-1.5 font-medium text-right min-w-0">
-                              <ColorSwatch
-                                hex={sel.colorHex.replace("#", "")}
-                                size="sm"
-                              />
-                              <span className="break-words min-w-0">
-                                {sel.colorName ?? sel.colorHex}
-                              </span>
-                            </span>
+                          {s.trayColor ? (
+                            <ColorSwatch hex={s.trayColor} />
                           ) : (
-                            <span className="text-muted-foreground text-xs">
-                              Any colour
-                            </span>
+                            <span className="w-4 h-4 rounded-sm border border-dashed border-border shrink-0" />
                           )}
-                        </div>
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate font-medium">
+                              {label}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {s.trayType
+                                ? `${s.colorName ?? "Unnamed"} - ${s.trayType}`
+                                : "No filament registered"}
+                            </span>
+                          </span>
+                        </button>
                       );
                     })}
                   </div>
                 )}
-
-                <div className="flex justify-between gap-3 min-w-0 pt-1 border-t border-border/50">
-                  <span className="text-muted-foreground shrink-0">
-                    Project
-                  </span>
-                  <span className="font-medium break-words text-right min-w-0">
-                    {selectedProjectId === "__personal__"
-                      ? "Personal / No project"
-                      : (selectedProject?.name ?? "—")}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3 min-w-0">
-                  <span className="text-muted-foreground shrink-0">
-                    Manual start
-                  </span>
-                  <span className="font-medium shrink-0">
-                    {manualStart ? "Yes" : "No"}
-                  </span>
-                </div>
               </div>
-            </div>
-          )}
-        </div>
-        {/* end scroll wrapper */}
-
-        {/* ── Navigation ── */}
-        <div className="flex justify-between pt-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={back}
-            disabled={step === STEPS[0]}
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            Back
-          </Button>
-
-          {step !== "confirm" ? (
+            )}
+          </div>
+          <div className="flex justify-end pt-2">
             <Button
+              variant="outline"
               size="sm"
-              onClick={handleNext}
-              disabled={!canAdvance() || uploading}
+              onClick={() => setFindFilamentOpen(false)}
             >
-              {uploading ? `${uploadProgress}%` : "Next"}
-              {!uploading && <ChevronRight className="h-4 w-4 ml-1" />}
+              Cancel
             </Button>
-          ) : (
-            <Button
-              size="sm"
-              onClick={handleSubmit}
-              disabled={addMutation.isPending || !selectedProjectId}
-            >
-              {addMutation.isPending ? "Queuing…" : "Queue print"}
-            </Button>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

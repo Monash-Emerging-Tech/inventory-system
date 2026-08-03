@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-export const APP_VERSION = "1.4.0";
+export const APP_VERSION = "1.5.0";
 
 interface ChangeEntry {
   type: "new" | "improved" | "fixed";
@@ -27,17 +27,36 @@ interface VersionEntry {
 
 const CHANGELOG: VersionEntry[] = [
   {
+    version: "1.5.0",
+    date: "3 August 2026",
+    title: "No More Held Prints, Filament Naming & Kiosk Redesign",
+    changes: [
+      {
+        type: "improved",
+        text: "Prints no longer get stuck \"held for manual start.\" If a pending job can't start, it's because its assigned printer has a real problem, so the print queue now shows that printer's actual error codes and descriptions directly under the job instead of a vague hold state.",
+      },
+      {
+        type: "new",
+        text: 'Filament colours can now be named and assigned from the print queue, the printer monitoring page, and the kiosk. Every filament shows its type plus a colour name, or a clear "Unknown" you can fix on the spot, including a "Can\'t find your filament?" lookup for a specific printer and AMS (or external spool) slot. Fill percentage displays have been removed everywhere in favour of this.',
+      },
+      {
+        type: "new",
+        text: 'Build plate clear confirmation is now available right on the print queue page: the job left waiting on an uncleared plate is pulled out of history and shown with a one-tap confirm button. The kiosk print status page has also been redesigned to combine printer monitoring and queue info in one view, including finished jobs collapsed behind a "show more" toggle.',
+      },
+    ],
+  },
+  {
     version: "1.4.0",
     date: "7 July 2026",
     title: "Kiosk Status, Queue Access & File Upload",
     changes: [
       {
         type: "new",
-        text: "Print status page on the kiosk — walk up to a kiosk and see live progress for prints in the queue.",
+        text: "Print status page on the kiosk - walk up to a kiosk and see live progress for prints in the queue.",
       },
       {
         type: "new",
-        text: "Upload progress bar — uploading a .gcode.3mf to the print queue now shows a real progress indicator instead of a blank wait.",
+        text: "Upload progress bar - uploading a .gcode.3mf to the print queue now shows a real progress indicator instead of a blank wait.",
       },
       {
         type: "improved",
@@ -61,7 +80,7 @@ const CHANGELOG: VersionEntry[] = [
       },
       {
         type: "fixed",
-        text: "Print queue only accepts .gcode.3mf files now — uploading a plain .gcode is blocked with an explanation instead of failing silently later.",
+        text: "Print queue only accepts .gcode.3mf files now - uploading a plain .gcode is blocked with an explanation instead of failing silently later.",
       },
       {
         type: "improved",
@@ -76,31 +95,31 @@ const CHANGELOG: VersionEntry[] = [
     changes: [
       {
         type: "new",
-        text: "Start anyway — when a print is held due to insufficient filament, a button lets the submitter confirm there is enough filament and release the job. The assigned printer's AMS is checked for a matching colour automatically; if no match is found, a slot picker lets you identify the correct spool manually.",
+        text: "Start anyway - when a print is held due to insufficient filament, a button lets the submitter confirm there is enough filament and release the job. The assigned printer's AMS is checked for a matching colour automatically; if no match is found, a slot picker lets you identify the correct spool manually.",
       },
       {
         type: "improved",
-        text: "Plain-English hold messages — every held print now shows a clear explanation of why it is waiting and what action is needed, including colour names for colour-match holds and an offline warning when the assigned printer is disconnected.",
+        text: "Plain-English hold messages - every held print now shows a clear explanation of why it is waiting and what action is needed, including colour names for colour-match holds and an offline warning when the assigned printer is disconnected.",
       },
       {
         type: "improved",
-        text: "Targeting simplified — 'any available printer' removed from the queue submission form; jobs now target a specific model or printer, preventing unexpected dispatches.",
+        text: "Targeting simplified - 'any available printer' removed from the queue submission form; jobs now target a specific model or printer, preventing unexpected dispatches.",
       },
       {
         type: "fixed",
-        text: "Concurrent queue fetches no longer hammer Bambuddy — in-flight request coalescing means multiple users refreshing at the same time share a single request.",
+        text: "Concurrent queue fetches no longer hammer Bambuddy - in-flight request coalescing means multiple users refreshing at the same time share a single request.",
       },
       {
         type: "new",
-        text: "Members page — admins can view all members synced from Notion, manage admin access, and ban users.",
+        text: "Members page - admins can view all members synced from Notion, manage admin access, and ban users.",
       },
       {
         type: "new",
-        text: "Member data caching — member and Discord details are cached and automatically refreshed from Notion every hour, making the members page significantly faster.",
+        text: "Member data caching - member and Discord details are cached and automatically refreshed from Notion every hour, making the members page significantly faster.",
       },
       {
         type: "new",
-        text: "Profile photos — your avatar now appears across all pages including the print queue and members list.",
+        text: "Profile photos - your avatar now appears across all pages including the print queue and members list.",
       },
     ],
   },
@@ -111,63 +130,63 @@ const CHANGELOG: VersionEntry[] = [
     changes: [
       {
         type: "new",
-        text: "Print queue dispatch — submit 3MF files directly to Bambu printers; jobs are held in a queue and dispatched one at a time per printer",
+        text: "Print queue dispatch - submit 3MF files directly to Bambu printers; jobs are held in a queue and dispatched one at a time per printer",
       },
       {
         type: "new",
-        text: "Drag-and-drop job ordering — reorder pending print jobs in the queue by dragging them into priority order",
+        text: "Drag-and-drop job ordering - reorder pending print jobs in the queue by dragging them into priority order",
       },
       {
         type: "new",
-        text: "User association — your name is linked to a print job once it is released from the queue so ownership is always traceable",
+        text: "User association - your name is linked to a print job once it is released from the queue so ownership is always traceable",
       },
       {
         type: "new",
-        text: "Print bed cleared button — operators can mark a print bed as cleared directly from the monitoring page, unblocking the next job",
+        text: "Print bed cleared button - operators can mark a print bed as cleared directly from the monitoring page, unblocking the next job",
       },
       {
         type: "new",
-        text: "Print history & stats — view a full log of completed jobs with per-printer statistics and project breakdowns",
+        text: "Print history & stats - view a full log of completed jobs with per-printer statistics and project breakdowns",
       },
       {
         type: "improved",
-        text: "AMS filament override — edit the expected filament type for any AMS slot directly from the print monitoring page; overrides apply immediately to matching logic",
+        text: "AMS filament override - edit the expected filament type for any AMS slot directly from the print monitoring page; overrides apply immediately to matching logic",
       },
       {
         type: "improved",
-        text: "Personal project support — personal-use jobs can now be submitted to the queue alongside lab project jobs",
+        text: "Personal project support - personal-use jobs can now be submitted to the queue alongside lab project jobs",
       },
       {
         type: "improved",
-        text: "Full BambuStudio error coverage — all error codes documented by BambuStudio are now mapped to human-readable messages in the monitoring UI",
+        text: "Full BambuStudio error coverage - all error codes documented by BambuStudio are now mapped to human-readable messages in the monitoring UI",
       },
       {
         type: "improved",
-        text: "Kiosk QR scanning — check-in and check-out QR code scanning has been overhauled for faster and more reliable reads",
+        text: "Kiosk QR scanning - check-in and check-out QR code scanning has been overhauled for faster and more reliable reads",
       },
       {
         type: "fixed",
-        text: "Print queue ordering was incorrect after job state changes — queue now re-sorts correctly",
+        text: "Print queue ordering was incorrect after job state changes - queue now re-sorts correctly",
       },
       {
         type: "fixed",
-        text: "Printer selection is now required before uploading a print job — previously the upload could proceed without a target printer selected",
+        text: "Printer selection is now required before uploading a print job - previously the upload could proceed without a target printer selected",
       },
       {
         type: "fixed",
-        text: "Add-to-queue popup was overflowing on smaller screens — dialog is now centred and constrained correctly",
+        text: "Add-to-queue popup was overflowing on smaller screens - dialog is now centred and constrained correctly",
       },
       {
         type: "new",
-        text: "Printer button status indicator — each Bambu printer's physical button now reflects job state: breathing green while printing, flashing red on error, off when idle, and flashing blue when a finished print needs the build plate cleared",
+        text: "Printer button status indicator - each Bambu printer's physical button now reflects job state: breathing green while printing, flashing red on error, off when idle, and flashing blue when a finished print needs the build plate cleared",
       },
       {
         type: "new",
-        text: "Auto-create spool on queue submission — if no matching spool is selected when submitting a job, a new spool is created automatically and the user is notified",
+        text: "Auto-create spool on queue submission - if no matching spool is selected when submitting a job, a new spool is created automatically and the user is notified",
       },
       {
         type: "improved",
-        text: "Filament types sourced from BambuBuddy API — available filament types in the AMS editor are now fetched live from BambuBuddy instead of a hardcoded list",
+        text: "Filament types sourced from BambuBuddy API - available filament types in the AMS editor are now fetched live from BambuBuddy instead of a hardcoded list",
       },
       {
         type: "improved",

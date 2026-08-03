@@ -2,6 +2,7 @@ import { router, userProcedure, kioskProcedure } from "@/server/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { logger as rootLogger } from "@/server/lib/logger";
+import { describeHmsErrors, type HmsErrorInfo } from "@/server/lib/hmsErrors";
 import { prisma } from "@/server/lib/prisma";
 import { Prisma } from "@prisma/client";
 import {
@@ -25,11 +26,17 @@ import {
   updateQueueItem,
   getInventoryAssignments,
   updateSpoolWeightUsed,
+  updateInventorySpool,
+  listInventorySpools,
+  createInventorySpool,
+  assignSpoolToSlot,
   BambuddyError,
   type FilamentOverride,
+  type BambuddySpoolAssignment,
 } from "@/server/lib/bambuddy";
 import {
   buildAmsSlots,
+  buildExternalSlots,
   matchFilaments,
   buildAmsMapping,
   type FilamentConstraint,
@@ -42,6 +49,68 @@ import {
 } from "@/server/api/utils/print/print.utils";
 
 const logger = rootLogger.child({ module: "router:printQueue" });
+
+function normalizeHex(hex: string | null | undefined): string {
+  return (hex ?? "").replace(/^#/, "").slice(0, 6).toUpperCase();
+}
+
+/** Human-readable colour names must come from the spool explicitly assigned
+ *  to a specific printer/AMS/tray - not a type+hex guess. Bambu firmware
+ *  reports "FFFFFF" for trays it can't read (no RFID / manual load), which
+ *  would otherwise coincidentally match an unrelated spool that's genuinely
+ *  white and wrongly "resolve" an unlabelled tray. */
+function assignmentKey(
+  printerId: number,
+  amsId: number,
+  trayId: number,
+): string {
+  return `${printerId}:${amsId}:${trayId}`;
+}
+
+// A pending job never waits on a human - if it can't proceed it's because
+// its assigned printer has a real problem. Surface that printer's AMS/HMS
+// errors directly on the row instead of a "held" state, so it's clear the
+// job is blocked by hardware, not policy. Bambuddy's raw status casing
+// isn't guaranteed lowercase (the UI itself lowercases before comparing) -
+// normalise here too.
+async function computePendingPrinterHmsErrors(
+  items: { status: string | null; printer_id: number | null }[],
+): Promise<Map<number, HmsErrorInfo[]>> {
+  const pendingPrinterIds = [
+    ...new Set(
+      items
+        .filter(
+          (i) => i.status?.toLowerCase() === "pending" && i.printer_id != null,
+        )
+        .map((i) => i.printer_id!),
+    ),
+  ];
+  const printerStatuses = await Promise.allSettled(
+    pendingPrinterIds.map((id) => getBambuddyPrinterStatus(id)),
+  );
+  const hmsErrorsByPrinterId = new Map<number, HmsErrorInfo[]>();
+  pendingPrinterIds.forEach((id, i) => {
+    const result = printerStatuses[i];
+    if (result.status !== "fulfilled") return;
+    const errors = describeHmsErrors(result.value.hms_errors);
+    if (errors.length > 0) hmsErrorsByPrinterId.set(id, errors);
+  });
+  return hmsErrorsByPrinterId;
+}
+
+function buildAssignmentColorNameMap(
+  assignments: BambuddySpoolAssignment[],
+): Map<string, string | null> {
+  const map = new Map<string, string | null>();
+  for (const a of assignments) {
+    if (!a.spool) continue;
+    map.set(
+      assignmentKey(a.printer_id, a.ams_id, a.tray_id),
+      a.spool.color_name,
+    );
+  }
+  return map;
+}
 
 const filamentConstraintSchema = z.object({
   slotIndex: z.number().int().min(0),
@@ -65,7 +134,7 @@ function formatBambuddyStartError(detail: {
       (d) =>
         `Slot ${d.slot_id} (${d.filament_type}): needs ${d.required_grams.toFixed(1)}g, ${d.remaining_grams.toFixed(1)}g remaining`,
     );
-    return `Insufficient filament — ${parts.join("; ")}`;
+    return `Insufficient filament - ${parts.join("; ")}`;
   }
   return `Cannot start print: ${detail.code.replace(/_/g, " ")}`;
 }
@@ -85,14 +154,12 @@ const addToQueueInputSchema = z.object({
   filamentConstraints: z.array(filamentConstraintSchema).default([]),
   options: z
     .object({
-      manualStart: z.boolean().default(false),
       bedLevelling: z.boolean().default(true),
       vibrationCali: z.boolean().default(true),
       timelapse: z.boolean().default(false),
       flowCali: z.boolean().default(false),
     })
     .default(() => ({
-      manualStart: false,
       bedLevelling: true,
       vibrationCali: true,
       timelapse: false,
@@ -124,6 +191,7 @@ export const printQueueRouter = router({
         id: s.id,
         name: s.name,
         connected: s.connected,
+        awaitingPlateClear: s.awaiting_plate_clear ?? false,
       }));
     } catch (err) {
       logger.error({ err }, "Failed to fetch printer connectivity");
@@ -138,10 +206,25 @@ export const printQueueRouter = router({
     .input(z.object({ printerId: z.number().int().positive() }))
     .query(async ({ input }) => {
       try {
-        const status = await getBambuddyPrinterStatus(input.printerId);
+        const [status, assignments] = await Promise.all([
+          getBambuddyPrinterStatus(input.printerId),
+          getInventoryAssignments(input.printerId).catch(() => []),
+        ]);
+        const colorNames = buildAssignmentColorNameMap(assignments);
+        const rawSlots = [
+          ...buildAmsSlots(status.ams),
+          ...buildExternalSlots(status.vt_tray),
+        ];
+        const slots = rawSlots.map((slot) => ({
+          ...slot,
+          colorName:
+            colorNames.get(
+              assignmentKey(input.printerId, slot.amsId, slot.trayId),
+            ) ?? null,
+        }));
         return {
           amsExists: status.ams_exists,
-          slots: buildAmsSlots(status.ams),
+          slots,
         };
       } catch (err) {
         logger.error(
@@ -161,7 +244,23 @@ export const printQueueRouter = router({
     )
     .query(async ({ input }) => {
       try {
-        return await getAvailableFilamentsForModel(input.model, input.location);
+        const slots = await getAvailableFilamentsForModel(
+          input.model,
+          input.location,
+        );
+        const printerIds = [...new Set(slots.map((s) => s.printer_id))];
+        const assignmentsByPrinter = await Promise.all(
+          printerIds.map((id) => getInventoryAssignments(id).catch(() => [])),
+        );
+        const colorNames = buildAssignmentColorNameMap(
+          assignmentsByPrinter.flat(),
+        );
+        return slots.map((s) => ({
+          ...s,
+          spool_color_name:
+            colorNames.get(assignmentKey(s.printer_id, s.ams_id, s.tray_id)) ??
+            null,
+        }));
       } catch (err) {
         logger.error({ err }, "Failed to get available filaments");
         throw new TRPCError({
@@ -250,6 +349,9 @@ export const printQueueRouter = router({
           submissions.map((s) => [s.bambuddyQueueItemId, s]),
         );
 
+        const hmsErrorsByPrinterId =
+          await computePendingPrinterHmsErrors(items);
+
         return items.map((item) => {
           const sub = subByItemId.get(item.id);
           const filenameName = printedByNameFromFilename(
@@ -264,6 +366,11 @@ export const printQueueRouter = router({
               null,
             notionProjectName: sub?.notionProjectName ?? null,
             personalUse: sub?.personalUse ?? false,
+            printerHmsErrors:
+              item.status?.toLowerCase() === "pending" &&
+              item.printer_id != null
+                ? (hmsErrorsByPrinterId.get(item.printer_id) ?? null)
+                : null,
           };
         });
       } catch (err) {
@@ -314,13 +421,12 @@ export const printQueueRouter = router({
       } catch (err) {
         logger.error(
           { err, archiveId: input.archiveId },
-          "Failed to rename archive for queuing — using original archive",
+          "Failed to rename archive for queuing - using original archive",
         );
       }
 
       let amsMappingResult: number[] | null = null;
       let unmatched: number[] = [];
-      let manualStart = options.manualStart;
 
       let filamentOverrides: FilamentOverride[] | null = null;
 
@@ -328,7 +434,11 @@ export const printQueueRouter = router({
         const colorConstraints = filamentConstraints.filter((c) => c.colorHex);
 
         // Specific-printer targeting: resolve AMS mapping against that printer's
-        // live AMS state so the job starts on the right slot immediately.
+        // live AMS state so the job starts on the right slot immediately. A
+        // print must never be held on a manual release - if some slots can't
+        // be matched right now, queue with a null mapping and let Bambuddy
+        // resolve/dispatch normally; an unresolved match surfaces as a
+        // printer error on the queue row instead of blocking the job.
         if (colorConstraints.length > 0 && targeting.mode === "printer") {
           try {
             const status = await getBambuddyPrinterStatus(targeting.printerId);
@@ -342,23 +452,18 @@ export const printQueueRouter = router({
             if (unmatched.length > 0) {
               logger.warn(
                 { unmatched, archiveId, printerId: targeting.printerId },
-                "Some filament slots could not be matched — setting manual_start",
+                "Some filament slots could not be matched - queuing anyway",
               );
-              manualStart = true;
             }
           } catch (err) {
-            logger.error(
-              { err },
-              "AMS matching failed — falling back to manual start",
-            );
-            manualStart = true;
+            logger.error({ err }, "AMS matching failed - queuing anyway");
           }
         }
 
         // Model targeting: send force_color_match overrides so Bambuddy's
         // scheduler waits for a printer of the target model with exact colours
         // loaded. Bambuddy computes the AMS mapping at dispatch time.
-        // "Any" targeting is intentionally excluded — Bambuddy drops
+        // "Any" targeting is intentionally excluded - Bambuddy drops
         // filament_overrides when no target_model is set.
         if (colorConstraints.length > 0 && targeting.mode === "model") {
           filamentOverrides = colorConstraints
@@ -375,7 +480,7 @@ export const printQueueRouter = router({
           if (filamentOverrides.length === 0) filamentOverrides = null;
           logger.info(
             { colorConstraints: colorConstraints.length },
-            "Queuing with force_color_match overrides — Bambuddy will wait for matching printer",
+            "Queuing with force_color_match overrides - Bambuddy will wait for matching printer",
           );
         }
       }
@@ -398,7 +503,6 @@ export const printQueueRouter = router({
         target_model: targeting.mode === "model" ? targeting.model : null,
         filament_overrides: filamentOverrides,
         ams_mapping: amsMappingResult,
-        manual_start: manualStart,
         bed_levelling: options.bedLevelling,
         vibration_cali: options.vibrationCali,
         timelapse: options.timelapse,
@@ -421,7 +525,7 @@ export const printQueueRouter = router({
         ) {
           logger.warn(
             { queueItemId: result.id, filamentOverrides },
-            "filament_overrides missing from POST response — patching queue item",
+            "filament_overrides missing from POST response - patching queue item",
           );
           try {
             result = await updateQueueItem(result.id, {
@@ -437,7 +541,7 @@ export const printQueueRouter = router({
           } catch (patchErr) {
             logger.error(
               { patchErr, queueItemId: result.id },
-              "PATCH filament_overrides failed — job queued without colour enforcement",
+              "PATCH filament_overrides failed - job queued without colour enforcement",
             );
           }
         }
@@ -601,7 +705,7 @@ export const printQueueRouter = router({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
-            "No printer is assigned to this job yet — cannot resolve filament shortage.",
+            "No printer is assigned to this job yet - cannot resolve filament shortage.",
         });
       }
 
@@ -659,7 +763,7 @@ export const printQueueRouter = router({
         };
       }
 
-      // No match — return all slots for manual selection
+      // No match - return all slots for manual selection
       return {
         status: "no_match" as const,
         printerId: item.printer_id,
@@ -726,13 +830,119 @@ export const printQueueRouter = router({
       );
     }),
 
+  // Filament remaining tracking has been disabled by policy: prints must
+  // never be blocked by spool level. Whenever a user picks a filament
+  // colour in the queue modal, every spool of that type+colour (on every
+  // printer) is reset to 100% remaining so the start-time deficit check
+  // in bambuddy never fires.
+  overrideFilamentToFull: userProcedure
+    .input(
+      z.object({
+        filamentType: z.string().min(1),
+        colorHex: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const normalizedType = input.filamentType.toUpperCase();
+      const normalizedHex = input.colorHex
+        .replace(/^#/, "")
+        .slice(0, 6)
+        .toUpperCase();
+
+      const spools = await listInventorySpools();
+      const matches = spools.filter((s) => {
+        if (s.archived_at) return false;
+        if (s.material.toUpperCase() !== normalizedType) return false;
+        const hex = (s.rgba ?? "").replace(/^#/, "").slice(0, 6).toUpperCase();
+        return hex === normalizedHex;
+      });
+
+      await Promise.all(matches.map((s) => updateSpoolWeightUsed(s.id, 0)));
+
+      logger.info(
+        {
+          filamentType: normalizedType,
+          colorHex: normalizedHex,
+          spoolCount: matches.length,
+        },
+        "Filament remaining overridden to 100% across matching spools",
+      );
+
+      return { updatedSpoolCount: matches.length };
+    }),
+
+  // Lets a user attach/change a human-readable colour name (and optionally
+  // correct the hex) for a filament tray. Updates the matching inventory
+  // spool if one exists for that type+colour; otherwise creates one and
+  // assigns it to the specific AMS tray the user was configuring, since an
+  // "Unknown" tray has no spool record to update.
+  nameFilamentColor: userProcedure
+    .input(
+      z.object({
+        printerId: z.number().int().positive(),
+        amsId: z.number().int(),
+        trayId: z.number().int(),
+        filamentType: z.string().min(1),
+        colorHex: z.string().min(1),
+        colorName: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const normalizedType = input.filamentType.toUpperCase();
+      const normalizedNewHex = normalizeHex(input.colorHex);
+
+      // Look up by the tray's actual assignment, not a type+hex guess - the
+      // hex alone can't be trusted (see buildAssignmentColorNameMap).
+      const assignments = await getInventoryAssignments(input.printerId);
+      const existing = assignments.find(
+        (a) => a.ams_id === input.amsId && a.tray_id === input.trayId,
+      )?.spool;
+
+      if (existing) {
+        await updateInventorySpool(existing.id, {
+          color_name: input.colorName,
+          rgba: normalizedNewHex,
+          weight_used: 0,
+        });
+      } else {
+        const created = await createInventorySpool({
+          material: normalizedType,
+          color_name: input.colorName,
+          rgba: normalizedNewHex,
+          weight_used: 0,
+        });
+        await assignSpoolToSlot({
+          spoolId: created.id,
+          printerId: input.printerId,
+          amsId: input.amsId,
+          trayId: input.trayId,
+        });
+      }
+
+      logger.info(
+        {
+          printerId: input.printerId,
+          amsId: input.amsId,
+          trayId: input.trayId,
+          filamentType: normalizedType,
+          colorHex: normalizedNewHex,
+          colorName: input.colorName,
+          matchedExistingSpool: Boolean(existing),
+        },
+        "Filament colour named",
+      );
+
+      return { ok: true };
+    }),
+
+  // Returns the full queue (not just active jobs) so the kiosk can mirror
+  // the print queue page's design: pending/printing up top, printer
+  // AMS/HMS errors surfaced on stuck pending jobs, and finished jobs
+  // available for a collapsed history section rather than dropped entirely.
   getKioskQueue: kioskProcedure.query(async () => {
     try {
       const items = await listQueue();
-      const activeItems = items.filter(
-        (i) => i.status === "pending" || i.status === "printing",
-      );
-      const itemIds = activeItems.map((i) => i.id);
+      const itemIds = items.map((i) => i.id);
       const submissions = await prisma.printQueueSubmission.findMany({
         where: { bambuddyQueueItemId: { in: itemIds } },
         select: {
@@ -745,7 +955,10 @@ export const printQueueRouter = router({
       const subByItemId = new Map(
         submissions.map((s) => [s.bambuddyQueueItemId, s]),
       );
-      return activeItems.map((item) => {
+
+      const hmsErrorsByPrinterId = await computePendingPrinterHmsErrors(items);
+
+      return items.map((item) => {
         const sub = subByItemId.get(item.id);
         const filenameName = printedByNameFromFilename(
           item.archive_name ?? item.library_file_name,
@@ -761,6 +974,13 @@ export const printQueueRouter = router({
             ? "Personal"
             : (sub?.notionProjectName ?? null),
           created_at: item.created_at,
+          completed_at: item.completed_at,
+          printer_id: item.printer_id,
+          printer_name: item.printer_name,
+          printerHmsErrors:
+            item.status?.toLowerCase() === "pending" && item.printer_id != null
+              ? (hmsErrorsByPrinterId.get(item.printer_id) ?? null)
+              : null,
         };
       });
     } catch (err) {
