@@ -830,6 +830,120 @@ export const printQueueRouter = router({
       );
     }),
 
+  // Auto-resolves a filament_short warning with no user interaction:
+  // tops up the matching spool to 100% if the colour is loaded on the
+  // assigned printer, reassigns the job to a different printer if the
+  // colour is loaded there instead, or reports "unavailable" so the UI
+  // can prompt the user to pick a different colour.
+  autoResolveFilamentShort: userProcedure
+    .input(z.object({ itemId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const item = await getQueueItem(input.itemId).catch(() => null);
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Queue item not found",
+        });
+      }
+
+      if (ctx.user.role !== "admin") {
+        const submission = await prisma.printQueueSubmission.findFirst({
+          where: { bambuddyQueueItemId: input.itemId, userId: ctx.user.id },
+          select: { userId: true },
+        });
+        if (!submission) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Only the person who submitted this print can resolve the filament check.",
+          });
+        }
+      }
+
+      if (!item.printer_id) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "No printer is assigned to this job yet - cannot resolve filament shortage.",
+        });
+      }
+
+      function normalizeHex(hex: string | null | undefined): string | null {
+        if (!hex) return null;
+        return hex.replace(/^#/, "").slice(0, 6).toUpperCase();
+      }
+
+      const filamentType = item.filament_type?.toUpperCase() ?? null;
+      const targetColorHex = normalizeHex(
+        item.filament_overrides?.[0]?.color ?? item.filament_color,
+      );
+
+      if (!filamentType) {
+        return { status: "unavailable" as const };
+      }
+
+      const printers = await listBambuddyPrinters();
+      const candidates: {
+        printerId: number;
+        printerName: string;
+        spoolId: number;
+      }[] = [];
+
+      for (const printer of printers) {
+        const assignments = await getInventoryAssignments(printer.id).catch(
+          () => [],
+        );
+        for (const a of assignments) {
+          if (!a.spool) continue;
+          const typeMatch = a.spool.material.toUpperCase() === filamentType;
+          const colorMatch =
+            !targetColorHex || normalizeHex(a.spool.rgba) === targetColorHex;
+          if (typeMatch && colorMatch) {
+            candidates.push({
+              printerId: printer.id,
+              printerName: printer.name,
+              spoolId: a.spool.id,
+            });
+          }
+        }
+      }
+
+      const onAssignedPrinter = candidates.find(
+        (c) => c.printerId === item.printer_id,
+      );
+
+      if (onAssignedPrinter) {
+        await updateSpoolWeightUsed(onAssignedPrinter.spoolId, 0);
+        logger.info(
+          { itemId: input.itemId, spoolId: onAssignedPrinter.spoolId },
+          "Filament short auto-resolved on assigned printer",
+        );
+        return { status: "resolved_here" as const };
+      }
+
+      const elsewhere = candidates[0];
+      if (elsewhere) {
+        await updateSpoolWeightUsed(elsewhere.spoolId, 0);
+        await updateQueueItem(input.itemId, {
+          printer_id: elsewhere.printerId,
+        });
+        logger.info(
+          {
+            itemId: input.itemId,
+            newPrinterId: elsewhere.printerId,
+            spoolId: elsewhere.spoolId,
+          },
+          "Filament short auto-resolved by reassigning to a printer with matching colour",
+        );
+        return {
+          status: "resolved_elsewhere" as const,
+          printerName: elsewhere.printerName,
+        };
+      }
+
+      return { status: "unavailable" as const };
+    }),
+
   // Filament remaining tracking has been disabled by policy: prints must
   // never be blocked by spool level. Whenever a user picks a filament
   // colour in the queue modal, every spool of that type+colour (on every
