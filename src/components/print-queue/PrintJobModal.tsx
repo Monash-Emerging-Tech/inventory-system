@@ -513,18 +513,29 @@ export function PrintJobModal({
 
   const availablePrinterSlots = printerAms?.slots ?? [];
 
-  // Color options for a type when targeting a specific printer, deduplicated
-  // by colour hex (an AMS can have the same colour loaded in multiple slots)
+  // Color options for a type when targeting a specific printer. Named
+  // colours are deduplicated by hex (an AMS can have the same colour loaded
+  // in multiple slots); unrecognised trays are never deduplicated — every
+  // one is a distinct physical tray needing its own name.
   function getPrinterColorsForType(reqType: string) {
     const filtered = availablePrinterSlots.filter((s) =>
       filamentTypeMatches(s.trayType, reqType),
     );
-    const seen = new Map<string, (typeof filtered)[0]>();
+    const seen = new Set<string>();
+    const known: typeof filtered = [];
+    const unknown: typeof filtered = [];
     for (const s of filtered) {
-      const key = (s.trayColor ?? "NOCOLOR").slice(0, 6).toUpperCase();
-      if (!seen.has(key)) seen.set(key, s);
+      if (s.colorName) {
+        const key = (s.trayColor ?? "NOCOLOR").slice(0, 6).toUpperCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          known.push(s);
+        }
+      } else {
+        unknown.push(s);
+      }
     }
-    return [...seen.values()];
+    return { known, unknown };
   }
 
   function filamentTypeMatches(
@@ -537,7 +548,9 @@ export function PrintJobModal({
     return a === b || a.startsWith(b + " ") || b.startsWith(a + " ");
   }
 
-  // Deduplicated color options for a type across all compatible printers
+  // Color options for a type across all compatible printers. Named colours
+  // are deduplicated by hex (keeping the fullest spool); unrecognised trays
+  // are never deduplicated — every one is a distinct physical tray.
   function getMultiPrinterColorsForType(reqType: string) {
     const filtered = multiPrinterFilaments.filter((f) => {
       if (!filamentTypeMatches(f.tray_type, reqType)) return false;
@@ -546,12 +559,17 @@ export function PrintJobModal({
       return true;
     });
     const seen = new Map<string, (typeof filtered)[0]>();
+    const unknown: typeof filtered = [];
     for (const f of filtered) {
-      const key = (f.tray_color ?? "NOCOLOR").slice(0, 6).toUpperCase();
-      const existing = seen.get(key);
-      if (!existing || f.remain > existing.remain) seen.set(key, f);
+      if (f.spool_color_name) {
+        const key = (f.tray_color ?? "NOCOLOR").slice(0, 6).toUpperCase();
+        const existing = seen.get(key);
+        if (!existing || f.remain > existing.remain) seen.set(key, f);
+      } else {
+        unknown.push(f);
+      }
     }
-    return [...seen.values()];
+    return { known: [...seen.values()], unknown };
   }
 
   const overrideFilamentToFullMutation =
@@ -606,6 +624,7 @@ export function PrintJobModal({
   const [namingLocationIdx, setNamingLocationIdx] = useState(0);
   const [namingNameInput, setNamingNameInput] = useState("");
   const [namingHexInput, setNamingHexInput] = useState("");
+  const [locationSelectOpen, setLocationSelectOpen] = useState(false);
 
   const utils = trpc.useUtils();
   const nameFilamentColorMutation =
@@ -659,6 +678,42 @@ export function PrintJobModal({
     setNamingLocationIdx(0);
     setNamingNameInput(currentName ?? "");
     setNamingHexInput(normalizedHex);
+    setLocationSelectOpen(false);
+  }
+
+  // Multiple unrecognised trays get grouped into one "N Unknown Filaments"
+  // row (their hexes are meaningless firmware placeholders, so they can't be
+  // grouped by colour). Opening it must force the user to pick a printer/AMS
+  // slot before naming — no default location, no prefilled name/hex.
+  function openUnknownNamingPopup(
+    filamentType: string,
+    locations: NamingLocation[],
+  ) {
+    setNamingTarget({ filamentType, hex: "", locations });
+    setNamingLocationIdx(-1);
+    setNamingNameInput("");
+    setNamingHexInput("");
+    setLocationSelectOpen(locations.length > 1);
+  }
+
+  // "PRNT001-AMS0,AMS3, PRNT010-AMS2" — one segment per printer, AMS ids
+  // grouped and sorted within it.
+  function formatUnknownLocations(locations: NamingLocation[]): string {
+    const byPrinter = new Map<number, { name: string; amsIds: number[] }>();
+    for (const loc of locations) {
+      const entry = byPrinter.get(loc.printerId) ?? {
+        name: loc.printerName,
+        amsIds: [],
+      };
+      if (!entry.amsIds.includes(loc.amsId)) entry.amsIds.push(loc.amsId);
+      byPrinter.set(loc.printerId, entry);
+    }
+    return [...byPrinter.values()]
+      .map(
+        (e) =>
+          `${e.name}-AMS${[...e.amsIds].sort((a, b) => a - b).join(",AMS")}`,
+      )
+      .join(", ");
   }
 
   function submitNamingPopup() {
@@ -1134,16 +1189,47 @@ export function PrintJobModal({
 
                           const printerColors = !isMultiPrinter
                             ? getPrinterColorsForType(type)
-                            : [];
+                            : { known: [], unknown: [] };
                           const multiColors = isMultiPrinter
                             ? getMultiPrinterColorsForType(type)
-                            : [];
+                            : { known: [], unknown: [] };
                           const colors = isMultiPrinter
                             ? multiColors
                             : printerColors;
                           const loading = isMultiPrinter
                             ? multiLoading
                             : printerLoading;
+
+                          const unknownLocations: NamingLocation[] =
+                            colors.unknown.map((opt) =>
+                              isMultiPrinter
+                                ? {
+                                    printerId: (
+                                      opt as (typeof multiColors)["unknown"][0]
+                                    ).printer_id,
+                                    printerName: (
+                                      opt as (typeof multiColors)["unknown"][0]
+                                    ).printer_name,
+                                    amsId: (
+                                      opt as (typeof multiColors)["unknown"][0]
+                                    ).ams_id,
+                                    trayId: (
+                                      opt as (typeof multiColors)["unknown"][0]
+                                    ).tray_id,
+                                  }
+                                : {
+                                    printerId: selectedPrinterId!,
+                                    printerName:
+                                      selectedPrinter?.name ??
+                                      `#${selectedPrinterId}`,
+                                    amsId: (
+                                      opt as (typeof printerColors)["unknown"][0]
+                                    ).amsId,
+                                    trayId: (
+                                      opt as (typeof printerColors)["unknown"][0]
+                                    ).trayId,
+                                  },
+                            );
 
                           return (
                             <div
@@ -1192,7 +1278,8 @@ export function PrintJobModal({
                                 <p className="text-xs text-muted-foreground">
                                   Loading available colours…
                                 </p>
-                              ) : colors.length === 0 ? (
+                              ) : colors.known.length === 0 &&
+                                colors.unknown.length === 0 ? (
                                 <p className="text-xs text-muted-foreground">
                                   No {type} available
                                   {targetingMode === "printer"
@@ -1239,14 +1326,15 @@ export function PrintJobModal({
                                     return (
                                       <div className="grid grid-cols-1 gap-0.5 max-h-40 overflow-y-auto">
                                         {(isMultiPrinter
-                                          ? multiColors
-                                          : printerColors
+                                          ? multiColors.known
+                                          : printerColors.known
                                         ).map((opt, fi) => {
                                           const hex = isMultiPrinter
-                                            ? ((opt as (typeof multiColors)[0])
-                                                .tray_color ?? "")
+                                            ? ((
+                                                opt as (typeof multiColors)["known"][0]
+                                              ).tray_color ?? "")
                                             : ((
-                                                opt as (typeof printerColors)[0]
+                                                opt as (typeof printerColors)["known"][0]
                                               ).trayColor ?? "");
                                           // tray_sub_brands/tray_id_name from
                                           // the AMS often just repeat the
@@ -1256,20 +1344,12 @@ export function PrintJobModal({
                                           // assigned spool's colour_name is
                                           // the only trustworthy source.
                                           const name = isMultiPrinter
-                                            ? (opt as (typeof multiColors)[0])
-                                                .spool_color_name
-                                            : (opt as (typeof printerColors)[0])
-                                                .colorName;
-                                          const printerName = isMultiPrinter
-                                            ? (opt as (typeof multiColors)[0])
-                                                .printer_name
-                                            : selectedPrinter?.name;
-                                          const amsId = isMultiPrinter
-                                            ? (opt as (typeof multiColors)[0])
-                                                .ams_id
-                                            : (opt as (typeof printerColors)[0])
-                                                .amsId;
-
+                                            ? (
+                                                opt as (typeof multiColors)["known"][0]
+                                              ).spool_color_name
+                                            : (
+                                                opt as (typeof printerColors)["known"][0]
+                                              ).colorName;
                                           const normalHex = hex
                                             .slice(0, 6)
                                             .toUpperCase();
@@ -1321,62 +1401,73 @@ export function PrintJobModal({
                                               )}
                                               <span className="flex-1 text-left min-w-0 overflow-hidden">
                                                 <span className="block truncate">
-                                                  {name
-                                                    ? `${name} - ${type}`
-                                                    : `${type} - Unknown`}
+                                                  {name} - {type}
                                                 </span>
-                                                {!name && (
-                                                  <span className="block truncate text-xs opacity-50">
-                                                    {printerName ??
-                                                      "Unknown printer"}{" "}
-                                                    - AMS{amsId}
-                                                  </span>
-                                                )}
                                               </span>
                                               {isSelected && (
                                                 <Check className="h-3.5 w-3.5 shrink-0" />
                                               )}
-                                              {name ? (
-                                                <button
-                                                  type="button"
-                                                  title="Edit colour"
-                                                  className={`shrink-0 p-1 rounded-sm hover:bg-black/10 dark:hover:bg-white/10 ${
-                                                    isSelected
-                                                      ? ""
-                                                      : "text-muted-foreground"
-                                                  }`}
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    openNamingPopup(
-                                                      type,
-                                                      hex,
-                                                      name,
-                                                    );
-                                                  }}
-                                                >
-                                                  <Pencil className="h-3.5 w-3.5" />
-                                                </button>
-                                              ) : (
-                                                <button
-                                                  type="button"
-                                                  title="Name this colour"
-                                                  className="shrink-0 flex items-center gap-1 rounded-sm bg-amber-500 px-2 py-1 text-xs font-medium text-white hover:bg-amber-600"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    openNamingPopup(
-                                                      type,
-                                                      hex,
-                                                      null,
-                                                    );
-                                                  }}
-                                                >
-                                                  <Tag className="h-3.5 w-3.5" />
-                                                  Choose Colour
-                                                </button>
-                                              )}
+                                              <button
+                                                type="button"
+                                                title="Edit colour"
+                                                className={`shrink-0 p-1 rounded-sm hover:bg-black/10 dark:hover:bg-white/10 ${
+                                                  isSelected
+                                                    ? ""
+                                                    : "text-muted-foreground"
+                                                }`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openNamingPopup(
+                                                    type,
+                                                    hex,
+                                                    name,
+                                                  );
+                                                }}
+                                              >
+                                                <Pencil className="h-3.5 w-3.5" />
+                                              </button>
                                             </div>
                                           );
                                         })}
+
+                                        {/* Grouped row for every unrecognised
+                                            tray of this type — hexes are
+                                            meaningless firmware placeholders
+                                            so they can't be grouped by
+                                            colour */}
+                                        {colors.unknown.length > 0 && (
+                                          <div className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm min-w-0">
+                                            <span className="w-4 h-4 rounded-sm border border-dashed border-border shrink-0" />
+                                            <span className="flex-1 text-left min-w-0 overflow-hidden">
+                                              <span className="block truncate">
+                                                {colors.unknown.length} Unknown
+                                                Filament
+                                                {colors.unknown.length === 1
+                                                  ? ""
+                                                  : "s"}
+                                              </span>
+                                              <span className="block truncate text-xs opacity-50">
+                                                {formatUnknownLocations(
+                                                  unknownLocations,
+                                                )}
+                                              </span>
+                                            </span>
+                                            <button
+                                              type="button"
+                                              title="Name these colours"
+                                              className="shrink-0 flex items-center gap-1 rounded-sm bg-amber-500 px-2 py-1 text-xs font-medium text-white hover:bg-amber-600"
+                                              onClick={() =>
+                                                openUnknownNamingPopup(
+                                                  type,
+                                                  unknownLocations,
+                                                )
+                                              }
+                                            >
+                                              <Tag className="h-3.5 w-3.5" />
+                                              Choose Colour
+                                            </button>
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   })()}
@@ -1578,10 +1669,9 @@ export function PrintJobModal({
             <>
               <DialogHeader>
                 <DialogTitle>
-                  Configuring{" "}
-                  {namingTarget.locations[namingLocationIdx]?.printerName ??
-                    "printer"}{" "}
-                  AMS{namingTarget.locations[namingLocationIdx]?.amsId}
+                  {namingLocationIdx >= 0
+                    ? `Configuring ${namingTarget.locations[namingLocationIdx]?.printerName ?? "printer"} AMS${namingTarget.locations[namingLocationIdx]?.amsId}`
+                    : "Select a printer / slot"}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-3">
@@ -1589,11 +1679,17 @@ export function PrintJobModal({
                   <div className="space-y-1.5">
                     <Label>Printer / slot</Label>
                     <Select
-                      value={String(namingLocationIdx)}
+                      value={
+                        namingLocationIdx >= 0
+                          ? String(namingLocationIdx)
+                          : undefined
+                      }
                       onValueChange={(v) => setNamingLocationIdx(Number(v))}
+                      open={locationSelectOpen}
+                      onOpenChange={setLocationSelectOpen}
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder="Select printer / slot…" />
                       </SelectTrigger>
                       <SelectContent>
                         {namingTarget.locations.map((loc, i) => (
@@ -1611,17 +1707,19 @@ export function PrintJobModal({
                     value={namingNameInput}
                     onChange={(e) => setNamingNameInput(e.target.value)}
                     placeholder="e.g. Bambu Black"
-                    autoFocus
+                    disabled={namingLocationIdx < 0}
+                    autoFocus={namingLocationIdx >= 0}
                   />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Hex colour</Label>
                   <div className="flex items-center gap-2">
-                    <ColorSwatch hex={namingHexInput} />
+                    <ColorSwatch hex={namingHexInput || "FFFFFF"} />
                     <Input
                       value={namingHexInput}
                       onChange={(e) => setNamingHexInput(e.target.value)}
                       placeholder="RRGGBB"
+                      disabled={namingLocationIdx < 0}
                     />
                   </div>
                 </div>
@@ -1638,6 +1736,7 @@ export function PrintJobModal({
                   size="sm"
                   onClick={submitNamingPopup}
                   disabled={
+                    namingLocationIdx < 0 ||
                     nameFilamentColorMutation.isPending ||
                     !namingNameInput.trim() ||
                     !namingHexInput.trim()
