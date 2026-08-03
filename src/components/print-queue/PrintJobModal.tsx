@@ -150,7 +150,6 @@ export function PrintJobModal({
     Map<number, TypeSelection>
   >(new Map());
 
-  const [manualStart, setManualStart] = useState(false);
   const [timelapse, setTimelapse] = useState(false);
   const [bedLevelling, setBedLevelling] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -271,7 +270,6 @@ export function PrintJobModal({
       setSelectedModel("");
       setSelectedPrinterId(null);
       setSlotSelections(new Map());
-      setManualStart(false);
       setTimelapse(false);
       setBedLevelling(true);
       setSelectedProjectId("");
@@ -327,7 +325,7 @@ export function PrintJobModal({
     onSuccess: (data) => {
       if (data.unmatchedSlots.length > 0) {
         toast.warning(
-          `Queued with manual start — ${data.unmatchedSlots.length} slot(s) had no matching filament`,
+          `Queued — ${data.unmatchedSlots.length} slot(s) had no matching filament yet; Bambuddy will assign automatically`,
         );
       } else {
         toast.success("Added to print queue");
@@ -453,7 +451,6 @@ export function PrintJobModal({
             : { mode: "any" },
       filamentConstraints: constraints,
       options: {
-        manualStart,
         timelapse,
         bedLevelling,
         vibrationCali: true,
@@ -1573,18 +1570,6 @@ export function PrintJobModal({
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <Label>Manual start</Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Queue without auto-dispatching — staff must start manually
-                    </p>
-                  </div>
-                  <Switch
-                    checked={manualStart}
-                    onCheckedChange={setManualStart}
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0">
                     <Label>Bed levelling</Label>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       Run automatic bed levelling before print
@@ -1680,14 +1665,6 @@ export function PrintJobModal({
                       {selectedProjectId === "__personal__"
                         ? "Personal / No project"
                         : (selectedProject?.name ?? "—")}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-3 min-w-0">
-                    <span className="text-muted-foreground shrink-0">
-                      Manual start
-                    </span>
-                    <span className="font-medium shrink-0">
-                      {manualStart ? "Yes" : "No"}
                     </span>
                   </div>
                 </div>
@@ -1791,7 +1768,9 @@ export function PrintJobModal({
                     onChange={(e) => setNamingNameInput(e.target.value)}
                     placeholder="e.g. Bambu Black"
                     disabled={namingLocationIdx < 0}
-                    autoFocus={namingLocationIdx >= 0 && !namingTarget.editableType}
+                    autoFocus={
+                      namingLocationIdx >= 0 && !namingTarget.editableType
+                    }
                   />
                 </div>
                 <div className="space-y-1.5">

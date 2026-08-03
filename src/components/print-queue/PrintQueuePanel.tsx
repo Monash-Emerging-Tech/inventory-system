@@ -7,7 +7,6 @@ import {
   Trash2,
   XCircle,
   RefreshCw,
-  Play,
   Square,
   Clock,
   CalendarClock,
@@ -18,6 +17,8 @@ import {
   FolderOpen,
   SkipForward,
   Wrench,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
@@ -59,8 +60,6 @@ function humaniseWaitingReason(
     return "No compatible printer is currently available. The job will start automatically when one becomes free.";
   if (s.includes("filament") || s.includes("spool"))
     return "Waiting for the required filament type to be loaded on a printer. Load the correct spool and the job will start automatically.";
-  if (s.includes("manual"))
-    return "This print is held for manual start. A staff member must press the play button to begin.";
   if (s.includes("scheduled"))
     return "This print is scheduled for a future time and will start automatically when the scheduled time is reached.";
   // Return the raw reason with a prefix if none of the patterns match
@@ -125,7 +124,6 @@ interface PrinterConnectivity {
 function QueueItemRow({
   item,
   connectivity,
-  onStart,
   onStop,
   onCancel,
   onDelete,
@@ -133,19 +131,33 @@ function QueueItemRow({
 }: {
   item: QueueItem;
   connectivity: PrinterConnectivity[];
-  onStart: (id: number) => void;
   onStop: (id: number) => void;
   onCancel: (id: number) => void;
   onDelete: (id: number) => void;
   onResolveFilamentShort: (id: number) => void;
 }) {
   const status = item.status?.toLowerCase() as QueueStatus;
-  const statusConfig = STATUS_CONFIG[status] ?? {
-    label: status,
-    className: "bg-slate-100 text-slate-600",
-  };
-
   const isPending = status === "pending";
+
+  // A pending job never waits on a human — if it can't proceed, its
+  // assigned printer has a real hardware problem. Surface that as an error
+  // state rather than a "held" one.
+  const hasPrinterError =
+    isPending &&
+    item.printerHmsErrors != null &&
+    item.printerHmsErrors.length > 0;
+
+  const statusConfig = hasPrinterError
+    ? {
+        label: "Error",
+        className:
+          "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400",
+      }
+    : (STATUS_CONFIG[status] ?? {
+        label: status,
+        className: "bg-slate-100 text-slate-600",
+      });
+
   const isPrinting = status === "printing";
   const isTerminal = ["completed", "failed", "cancelled", "skipped"].includes(
     status,
@@ -198,14 +210,6 @@ function QueueItemRow({
           >
             {statusConfig.label}
           </span>
-          {item.manual_start && isPending && (
-            <Badge
-              variant="outline"
-              className="text-xs shrink-0 border-amber-400/60 text-amber-600 dark:text-amber-400"
-            >
-              Held — manual start
-            </Badge>
-          )}
           {item.timelapse && (
             <Badge variant="outline" className="text-xs shrink-0">
               timelapse
@@ -302,22 +306,32 @@ function QueueItemRow({
           </div>
         )}
 
-        {/* Manual start explanation */}
-        {item.manual_start &&
-          isPending &&
-          !item.waiting_reason &&
-          !item.filament_short && (
-            <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+        {/* Printer error — AMS/HMS errors on the assigned printer */}
+        {hasPrinterError && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 space-y-1">
+            <div className="flex items-start gap-1.5 text-xs text-destructive font-medium">
               <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
               <span>
-                This print is held for manual start. A staff member must press
-                the play button to begin.
+                {printerLabel} has an error — this job cannot start until it's
+                resolved.
               </span>
             </div>
-          )}
+            <ul className="space-y-0.5 pl-[18px]">
+              {item.printerHmsErrors!.map((e, i) => (
+                <li
+                  key={i}
+                  className="flex gap-1.5 text-xs text-destructive"
+                >
+                  <span className="font-mono shrink-0">{e.code}</span>
+                  <span>{e.description}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Waiting reason */}
-        {item.waiting_reason && isPending && (
+        {item.waiting_reason && isPending && !hasPrinterError && (
           <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
             <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
             <span>
@@ -370,17 +384,6 @@ function QueueItemRow({
 
       {/* Actions */}
       <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
-        {isPending && item.manual_start && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
-            title="Start print"
-            onClick={() => onStart(item.id)}
-          >
-            <Play className="h-3.5 w-3.5" />
-          </Button>
-        )}
         {isPrinting && (
           <Button
             variant="ghost"
@@ -567,6 +570,7 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
   );
   const [filamentShortDialog, setFilamentShortDialog] =
     useState<FilamentShortDialog | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   const {
     data: queueItems,
@@ -638,14 +642,6 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
   function invalidate() {
     void utils.printQueue.listQueue.invalidate();
   }
-
-  const startMutation = trpc.printQueue.startQueueItem.useMutation({
-    onSuccess: () => {
-      toast.success("Print started");
-      invalidate();
-    },
-    onError: (err) => toast.error(err.message),
-  });
 
   const stopMutation = trpc.printQueue.stopQueueItem.useMutation({
     onSuccess: () => {
@@ -743,40 +739,70 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
         </div>
       )}
 
-      {!isLoading && queueItems && queueItems.length > 0 && (
-        <div>
-          {[...queueItems]
-            .sort((a, b) => {
-              const rank = (s: string | null | undefined) => {
-                const st = s?.toLowerCase();
-                if (st === "printing") return 0;
-                if (st === "pending") return 1;
-                return 2;
-              };
-              const ra = rank(a.status);
-              const rb = rank(b.status);
-              if (ra !== rb) return ra - rb;
-              if (ra === 0 || ra === 1)
-                return (a.position ?? 0) - (b.position ?? 0);
-              // terminal: most recent first
-              return (b.completed_at ?? b.created_at ?? "").localeCompare(
-                a.completed_at ?? a.created_at ?? "",
-              );
-            })
-            .map((item) => (
-              <QueueItemRow
-                key={item.id}
-                item={item}
-                connectivity={connectivity}
-                onStart={(id) => startMutation.mutate({ itemId: id })}
-                onStop={(id) => stopMutation.mutate({ itemId: id })}
-                onCancel={(id) => cancelMutation.mutate({ itemId: id })}
-                onDelete={(id) => deleteMutation.mutate({ itemId: id })}
-                onResolveFilamentShort={(id) => setFilamentShortItemId(id)}
-              />
+      {!isLoading && queueItems && queueItems.length > 0 && (() => {
+        const active = [...queueItems]
+          .filter((i) => i.status === "printing" || i.status === "pending")
+          .sort((a, b) => {
+            const rank = (s: string | null | undefined) =>
+              s?.toLowerCase() === "printing" ? 0 : 1;
+            const ra = rank(a.status);
+            const rb = rank(b.status);
+            if (ra !== rb) return ra - rb;
+            return (a.position ?? 0) - (b.position ?? 0);
+          });
+        // Completed/failed/skipped/cancelled jobs are done — auto-collapse
+        // them behind a toggle so the panel stays focused on what's live.
+        const history = [...queueItems]
+          .filter((i) => i.status !== "printing" && i.status !== "pending")
+          .sort((a, b) =>
+            (b.completed_at ?? b.created_at ?? "").localeCompare(
+              a.completed_at ?? a.created_at ?? "",
+            ),
+          );
+
+        const rowProps = {
+          connectivity,
+          onStop: (id: number) => stopMutation.mutate({ itemId: id }),
+          onCancel: (id: number) => cancelMutation.mutate({ itemId: id }),
+          onDelete: (id: number) => deleteMutation.mutate({ itemId: id }),
+          onResolveFilamentShort: (id: number) => setFilamentShortItemId(id),
+        };
+
+        return (
+          <div>
+            {active.length === 0 && history.length > 0 && (
+              <p className="text-sm text-muted-foreground text-center py-6">
+                No active jobs
+              </p>
+            )}
+            {active.map((item) => (
+              <QueueItemRow key={item.id} item={item} {...rowProps} />
             ))}
-        </div>
-      )}
+
+            {history.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 w-full text-xs text-muted-foreground hover:text-foreground py-2"
+                  onClick={() => setShowHistory((v) => !v)}
+                >
+                  {showHistory ? (
+                    <ChevronUp className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  )}
+                  {showHistory ? "Hide" : "Show"} {history.length} finished job
+                  {history.length === 1 ? "" : "s"}
+                </button>
+                {showHistory &&
+                  history.map((item) => (
+                    <QueueItemRow key={item.id} item={item} {...rowProps} />
+                  ))}
+              </>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

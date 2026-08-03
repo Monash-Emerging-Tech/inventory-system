@@ -2,6 +2,7 @@ import { router, userProcedure, kioskProcedure } from "@/server/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { logger as rootLogger } from "@/server/lib/logger";
+import { describeHmsErrors, type HmsErrorInfo } from "@/server/lib/hmsErrors";
 import { prisma } from "@/server/lib/prisma";
 import { Prisma } from "@prisma/client";
 import {
@@ -122,14 +123,12 @@ const addToQueueInputSchema = z.object({
   filamentConstraints: z.array(filamentConstraintSchema).default([]),
   options: z
     .object({
-      manualStart: z.boolean().default(false),
       bedLevelling: z.boolean().default(true),
       vibrationCali: z.boolean().default(true),
       timelapse: z.boolean().default(false),
       flowCali: z.boolean().default(false),
     })
     .default(() => ({
-      manualStart: false,
       bedLevelling: true,
       vibrationCali: true,
       timelapse: false,
@@ -318,6 +317,28 @@ export const printQueueRouter = router({
           submissions.map((s) => [s.bambuddyQueueItemId, s]),
         );
 
+        // A pending job never waits on a human — if it can't proceed it's
+        // because its assigned printer has a real problem. Surface that
+        // printer's AMS/HMS errors directly on the row instead of a "held"
+        // state, so it's clear the job is blocked by hardware, not policy.
+        const pendingPrinterIds = [
+          ...new Set(
+            items
+              .filter((i) => i.status === "pending" && i.printer_id != null)
+              .map((i) => i.printer_id!),
+          ),
+        ];
+        const printerStatuses = await Promise.allSettled(
+          pendingPrinterIds.map((id) => getBambuddyPrinterStatus(id)),
+        );
+        const hmsErrorsByPrinterId = new Map<number, HmsErrorInfo[]>();
+        pendingPrinterIds.forEach((id, i) => {
+          const result = printerStatuses[i];
+          if (result.status !== "fulfilled") return;
+          const errors = describeHmsErrors(result.value.hms_errors);
+          if (errors.length > 0) hmsErrorsByPrinterId.set(id, errors);
+        });
+
         return items.map((item) => {
           const sub = subByItemId.get(item.id);
           const filenameName = printedByNameFromFilename(
@@ -332,6 +353,10 @@ export const printQueueRouter = router({
               null,
             notionProjectName: sub?.notionProjectName ?? null,
             personalUse: sub?.personalUse ?? false,
+            printerHmsErrors:
+              item.status === "pending" && item.printer_id != null
+                ? (hmsErrorsByPrinterId.get(item.printer_id) ?? null)
+                : null,
           };
         });
       } catch (err) {
@@ -388,7 +413,6 @@ export const printQueueRouter = router({
 
       let amsMappingResult: number[] | null = null;
       let unmatched: number[] = [];
-      let manualStart = options.manualStart;
 
       let filamentOverrides: FilamentOverride[] | null = null;
 
@@ -396,7 +420,11 @@ export const printQueueRouter = router({
         const colorConstraints = filamentConstraints.filter((c) => c.colorHex);
 
         // Specific-printer targeting: resolve AMS mapping against that printer's
-        // live AMS state so the job starts on the right slot immediately.
+        // live AMS state so the job starts on the right slot immediately. A
+        // print must never be held on a manual release — if some slots can't
+        // be matched right now, queue with a null mapping and let Bambuddy
+        // resolve/dispatch normally; an unresolved match surfaces as a
+        // printer error on the queue row instead of blocking the job.
         if (colorConstraints.length > 0 && targeting.mode === "printer") {
           try {
             const status = await getBambuddyPrinterStatus(targeting.printerId);
@@ -410,16 +438,11 @@ export const printQueueRouter = router({
             if (unmatched.length > 0) {
               logger.warn(
                 { unmatched, archiveId, printerId: targeting.printerId },
-                "Some filament slots could not be matched — setting manual_start",
+                "Some filament slots could not be matched — queuing anyway",
               );
-              manualStart = true;
             }
           } catch (err) {
-            logger.error(
-              { err },
-              "AMS matching failed — falling back to manual start",
-            );
-            manualStart = true;
+            logger.error({ err }, "AMS matching failed — queuing anyway");
           }
         }
 
@@ -466,7 +489,6 @@ export const printQueueRouter = router({
         target_model: targeting.mode === "model" ? targeting.model : null,
         filament_overrides: filamentOverrides,
         ams_mapping: amsMappingResult,
-        manual_start: manualStart,
         bed_levelling: options.bedLevelling,
         vibration_cali: options.vibrationCali,
         timelapse: options.timelapse,
