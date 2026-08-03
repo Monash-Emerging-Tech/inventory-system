@@ -160,6 +160,7 @@ export const printQueueRouter = router({
         id: s.id,
         name: s.name,
         connected: s.connected,
+        awaitingPlateClear: s.awaiting_plate_clear ?? false,
       }));
     } catch (err) {
       logger.error({ err }, "Failed to fetch printer connectivity");

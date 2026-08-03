@@ -19,10 +19,12 @@ import {
   Wrench,
   ChevronDown,
   ChevronUp,
+  CheckSquare,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
+import { PrintRatingDialog } from "@/components/print/PrintRatingDialog";
 
 type QueueItem =
   inferRouterOutputs<AppRouter>["printQueue"]["listQueue"][number];
@@ -119,6 +121,7 @@ interface PrinterConnectivity {
   id: number;
   name: string;
   connected: boolean;
+  awaitingPlateClear?: boolean;
 }
 
 function QueueItemRow({
@@ -128,6 +131,8 @@ function QueueItemRow({
   onCancel,
   onDelete,
   onResolveFilamentShort,
+  needsPlateClear,
+  onConfirmPlateClear,
 }: {
   item: QueueItem;
   connectivity: PrinterConnectivity[];
@@ -135,6 +140,8 @@ function QueueItemRow({
   onCancel: (id: number) => void;
   onDelete: (id: number) => void;
   onResolveFilamentShort: (id: number) => void;
+  needsPlateClear?: boolean;
+  onConfirmPlateClear?: () => void;
 }) {
   const status = item.status?.toLowerCase() as QueueStatus;
   const isPending = status === "pending";
@@ -377,6 +384,26 @@ function QueueItemRow({
             {item.error_message}
           </p>
         )}
+
+        {/* Build plate not cleared — this is the most recently completed
+            job on the assigned printer, surfaced above the collapsed
+            history so the plate can be confirmed cleared right here. */}
+        {needsPlateClear && (
+          <div className="flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 px-2.5 py-1.5">
+            <CheckSquare className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="flex-1 text-xs text-amber-700 dark:text-amber-400">
+              Build plate not cleared on {printerLabel} — the next job can't
+              start until it's confirmed.
+            </span>
+            <button
+              className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 transition-colors"
+              onClick={onConfirmPlateClear}
+            >
+              <CheckSquare className="h-2.5 w-2.5" />
+              Confirm cleared
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Actions */}
@@ -568,6 +595,11 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
   const [filamentShortDialog, setFilamentShortDialog] =
     useState<FilamentShortDialog | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [plateClearDialog, setPlateClearDialog] = useState<{
+    bambuddyId: number;
+    printerName: string;
+    fileName?: string;
+  } | null>(null);
 
   const {
     data: queueItems,
@@ -638,6 +670,7 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
 
   function invalidate() {
     void utils.printQueue.listQueue.invalidate();
+    void utils.printQueue.listPrinterConnectivity.invalidate();
   }
 
   const stopMutation = trpc.printQueue.stopQueueItem.useMutation({
@@ -681,6 +714,21 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
 
   return (
     <div className="space-y-1">
+      {/* Build plate clear confirmation dialog */}
+      {plateClearDialog && (
+        <PrintRatingDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPlateClearDialog(null);
+          }}
+          bambuddyId={plateClearDialog.bambuddyId}
+          printerName={plateClearDialog.printerName}
+          fileName={plateClearDialog.fileName}
+          mode="user"
+          onCleared={() => invalidate()}
+        />
+      )}
+
       {/* Filament short confirmation dialog */}
       {filamentShortDialog && (
         <FilamentShortDialogContent
@@ -750,10 +798,46 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
               if (ra !== rb) return ra - rb;
               return (a.position ?? 0) - (b.position ?? 0);
             });
+
+          // Printers whose build plate hasn't been confirmed cleared block
+          // their next job — surface the job that left them in that state
+          // (their most recently completed print) above the collapsed
+          // history, un-hidden, with a button to confirm it right here.
+          const printersNeedingClear = new Set(
+            connectivity
+              .filter((c) => c.awaitingPlateClear)
+              .map((c) => c.id),
+          );
+          const plateClearItemIds = new Set<number>();
+          for (const printerId of printersNeedingClear) {
+            const mostRecent = queueItems
+              .filter(
+                (i) => i.printer_id === printerId && i.status === "completed",
+              )
+              .sort((a, b) =>
+                (b.completed_at ?? b.created_at ?? "").localeCompare(
+                  a.completed_at ?? a.created_at ?? "",
+                ),
+              )[0];
+            if (mostRecent) plateClearItemIds.add(mostRecent.id);
+          }
+          const plateClearItems = [...queueItems]
+            .filter((i) => plateClearItemIds.has(i.id))
+            .sort((a, b) =>
+              (b.completed_at ?? b.created_at ?? "").localeCompare(
+                a.completed_at ?? a.created_at ?? "",
+              ),
+            );
+
           // Completed/failed/skipped/cancelled jobs are done — auto-collapse
           // them behind a toggle so the panel stays focused on what's live.
           const history = [...queueItems]
-            .filter((i) => i.status !== "printing" && i.status !== "pending")
+            .filter(
+              (i) =>
+                i.status !== "printing" &&
+                i.status !== "pending" &&
+                !plateClearItemIds.has(i.id),
+            )
             .sort((a, b) =>
               (b.completed_at ?? b.created_at ?? "").localeCompare(
                 a.completed_at ?? a.created_at ?? "",
@@ -770,13 +854,35 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
 
           return (
             <div>
-              {active.length === 0 && history.length > 0 && (
-                <p className="text-sm text-muted-foreground text-center py-6">
-                  No active jobs
-                </p>
-              )}
+              {active.length === 0 &&
+                plateClearItems.length === 0 &&
+                history.length > 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    No active jobs
+                  </p>
+                )}
               {active.map((item) => (
                 <QueueItemRow key={item.id} item={item} {...rowProps} />
+              ))}
+
+              {plateClearItems.map((item) => (
+                <QueueItemRow
+                  key={item.id}
+                  item={item}
+                  {...rowProps}
+                  needsPlateClear
+                  onConfirmPlateClear={() =>
+                    item.printer_id != null &&
+                    setPlateClearDialog({
+                      bambuddyId: item.printer_id,
+                      printerName: item.printer_name ?? `#${item.printer_id}`,
+                      fileName:
+                        item.archive_name ??
+                        item.library_file_name ??
+                        undefined,
+                    })
+                  }
+                />
               ))}
 
               {history.length > 0 && (
