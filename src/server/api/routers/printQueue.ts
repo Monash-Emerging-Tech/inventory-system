@@ -54,10 +54,14 @@ function normalizeHex(hex: string | null | undefined): string {
 
 /** Human-readable colour names must come from the spool explicitly assigned
  *  to a specific printer/AMS/tray — not a type+hex guess. Bambu firmware
- *  reports "000000" for trays it can't read (no RFID / manual load), which
+ *  reports "FFFFFF" for trays it can't read (no RFID / manual load), which
  *  would otherwise coincidentally match an unrelated spool that's genuinely
- *  black and wrongly "resolve" an unlabelled tray. */
-function assignmentKey(printerId: number, amsId: number, trayId: number): string {
+ *  white and wrongly "resolve" an unlabelled tray. */
+function assignmentKey(
+  printerId: number,
+  amsId: number,
+  trayId: number,
+): string {
   return `${printerId}:${amsId}:${trayId}`;
 }
 
@@ -67,7 +71,10 @@ function buildAssignmentColorNameMap(
   const map = new Map<string, string | null>();
   for (const a of assignments) {
     if (!a.spool) continue;
-    map.set(assignmentKey(a.printer_id, a.ams_id, a.tray_id), a.spool.color_name);
+    map.set(
+      assignmentKey(a.printer_id, a.ams_id, a.tray_id),
+      a.spool.color_name,
+    );
   }
   return map;
 }
@@ -215,9 +222,8 @@ export const printQueueRouter = router({
         return slots.map((s) => ({
           ...s,
           spool_color_name:
-            colorNames.get(
-              assignmentKey(s.printer_id, s.ams_id, s.tray_id),
-            ) ?? null,
+            colorNames.get(assignmentKey(s.printer_id, s.ams_id, s.tray_id)) ??
+            null,
         }));
       } catch (err) {
         logger.error({ err }, "Failed to get available filaments");
