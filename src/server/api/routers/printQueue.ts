@@ -31,7 +31,7 @@ import {
   assignSpoolToSlot,
   BambuddyError,
   type FilamentOverride,
-  type InventorySpool,
+  type BambuddySpoolAssignment,
 } from "@/server/lib/bambuddy";
 import {
   buildAmsSlots,
@@ -52,24 +52,24 @@ function normalizeHex(hex: string | null | undefined): string {
   return (hex ?? "").replace(/^#/, "").slice(0, 6).toUpperCase();
 }
 
-/** Look up the human-readable colour name (e.g. "Bambu Black") for a
- *  type+colour pair from inventory spool records — AMS tray data alone
- *  rarely carries a readable name. */
-function findSpoolColorName(
-  spools: InventorySpool[],
-  type: string | null,
-  hex: string | null,
-): string | null {
-  if (!type || !hex) return null;
-  const normalizedType = type.toUpperCase();
-  const normalizedHex = normalizeHex(hex);
-  const match = spools.find(
-    (s) =>
-      !s.archived_at &&
-      s.material.toUpperCase() === normalizedType &&
-      normalizeHex(s.rgba) === normalizedHex,
-  );
-  return match?.color_name ?? null;
+/** Human-readable colour names must come from the spool explicitly assigned
+ *  to a specific printer/AMS/tray — not a type+hex guess. Bambu firmware
+ *  reports "000000" for trays it can't read (no RFID / manual load), which
+ *  would otherwise coincidentally match an unrelated spool that's genuinely
+ *  black and wrongly "resolve" an unlabelled tray. */
+function assignmentKey(printerId: number, amsId: number, trayId: number): string {
+  return `${printerId}:${amsId}:${trayId}`;
+}
+
+function buildAssignmentColorNameMap(
+  assignments: BambuddySpoolAssignment[],
+): Map<string, string | null> {
+  const map = new Map<string, string | null>();
+  for (const a of assignments) {
+    if (!a.spool) continue;
+    map.set(assignmentKey(a.printer_id, a.ams_id, a.tray_id), a.spool.color_name);
+  }
+  return map;
 }
 
 const filamentConstraintSchema = z.object({
@@ -167,13 +167,17 @@ export const printQueueRouter = router({
     .input(z.object({ printerId: z.number().int().positive() }))
     .query(async ({ input }) => {
       try {
-        const [status, spools] = await Promise.all([
+        const [status, assignments] = await Promise.all([
           getBambuddyPrinterStatus(input.printerId),
-          listInventorySpools(),
+          getInventoryAssignments(input.printerId).catch(() => []),
         ]);
+        const colorNames = buildAssignmentColorNameMap(assignments);
         const slots = buildAmsSlots(status.ams).map((slot) => ({
           ...slot,
-          colorName: findSpoolColorName(spools, slot.trayType, slot.trayColor),
+          colorName:
+            colorNames.get(
+              assignmentKey(input.printerId, slot.amsId, slot.trayId),
+            ) ?? null,
         }));
         return {
           amsExists: status.ams_exists,
@@ -197,17 +201,23 @@ export const printQueueRouter = router({
     )
     .query(async ({ input }) => {
       try {
-        const [slots, spools] = await Promise.all([
-          getAvailableFilamentsForModel(input.model, input.location),
-          listInventorySpools(),
-        ]);
+        const slots = await getAvailableFilamentsForModel(
+          input.model,
+          input.location,
+        );
+        const printerIds = [...new Set(slots.map((s) => s.printer_id))];
+        const assignmentsByPrinter = await Promise.all(
+          printerIds.map((id) => getInventoryAssignments(id).catch(() => [])),
+        );
+        const colorNames = buildAssignmentColorNameMap(
+          assignmentsByPrinter.flat(),
+        );
         return slots.map((s) => ({
           ...s,
-          spool_color_name: findSpoolColorName(
-            spools,
-            s.tray_type,
-            s.tray_color,
-          ),
+          spool_color_name:
+            colorNames.get(
+              assignmentKey(s.printer_id, s.ams_id, s.tray_id),
+            ) ?? null,
         }));
       } catch (err) {
         logger.error({ err }, "Failed to get available filaments");
@@ -826,7 +836,6 @@ export const printQueueRouter = router({
         amsId: z.number().int(),
         trayId: z.number().int(),
         filamentType: z.string().min(1),
-        previousHex: z.string().nullable(),
         colorHex: z.string().min(1),
         colorName: z.string().min(1),
       }),
@@ -834,19 +843,13 @@ export const printQueueRouter = router({
     .mutation(async ({ input }) => {
       const normalizedType = input.filamentType.toUpperCase();
       const normalizedNewHex = normalizeHex(input.colorHex);
-      const normalizedPrevHex = input.previousHex
-        ? normalizeHex(input.previousHex)
-        : null;
 
-      const spools = await listInventorySpools();
-      const existing = normalizedPrevHex
-        ? spools.find(
-            (s) =>
-              !s.archived_at &&
-              s.material.toUpperCase() === normalizedType &&
-              normalizeHex(s.rgba) === normalizedPrevHex,
-          )
-        : undefined;
+      // Look up by the tray's actual assignment, not a type+hex guess — the
+      // hex alone can't be trusted (see buildAssignmentColorNameMap).
+      const assignments = await getInventoryAssignments(input.printerId);
+      const existing = assignments.find(
+        (a) => a.ams_id === input.amsId && a.tray_id === input.trayId,
+      )?.spool;
 
       if (existing) {
         await updateInventorySpool(existing.id, {

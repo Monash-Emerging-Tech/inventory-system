@@ -672,7 +672,6 @@ export function PrintJobModal({
       amsId: location.amsId,
       trayId: location.trayId,
       filamentType: namingTarget.filamentType,
-      previousHex: namingTarget.hex,
       colorHex: namingHexInput.trim(),
       colorName: namingNameInput.trim(),
     });
