@@ -1248,25 +1248,18 @@ export function PrintJobModal({
                                             : ((
                                                 opt as (typeof printerColors)[0]
                                               ).trayColor ?? "");
-                                          const subBrands = isMultiPrinter
-                                            ? (opt as (typeof multiColors)[0])
-                                                .tray_sub_brands
-                                            : (opt as (typeof printerColors)[0])
-                                                .traySubBrands;
-                                          const idName = isMultiPrinter
-                                            ? (opt as (typeof multiColors)[0])
-                                                .tray_id_name
-                                            : (opt as (typeof printerColors)[0])
-                                                .trayIdName;
-                                          const spoolColorName = isMultiPrinter
+                                          // tray_sub_brands/tray_id_name from
+                                          // the AMS often just repeat the
+                                          // material (e.g. "PLA Matte") for
+                                          // manually-loaded spools rather
+                                          // than a real colour name — the
+                                          // assigned spool's colour_name is
+                                          // the only trustworthy source.
+                                          const name = isMultiPrinter
                                             ? (opt as (typeof multiColors)[0])
                                                 .spool_color_name
                                             : (opt as (typeof printerColors)[0])
                                                 .colorName;
-                                          const name =
-                                            spoolColorName ??
-                                            subBrands ??
-                                            idName;
                                           const printerName = isMultiPrinter
                                             ? (opt as (typeof multiColors)[0])
                                                 .printer_name
