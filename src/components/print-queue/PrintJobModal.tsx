@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { trpc } from "@/client/trpc";
 import {
+  filamentTypeMatches,
+  dedupeFilamentColors,
+} from "@/lib/filamentColors";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -538,16 +542,6 @@ export function PrintJobModal({
     return { known, unknown };
   }
 
-  function filamentTypeMatches(
-    trayType: string | null,
-    reqType: string,
-  ): boolean {
-    if (!trayType) return false;
-    const a = trayType.toUpperCase();
-    const b = reqType.toUpperCase();
-    return a === b || a.startsWith(b + " ") || b.startsWith(a + " ");
-  }
-
   // Color options for a type across all compatible printers. Named colours
   // are deduplicated by hex (keeping the fullest spool); unrecognised trays
   // are never deduplicated - every one is a distinct physical tray.
@@ -558,18 +552,12 @@ export function PrintJobModal({
         return false;
       return true;
     });
-    const seen = new Map<string, (typeof filtered)[0]>();
-    const unknown: typeof filtered = [];
-    for (const f of filtered) {
-      if (f.spool_color_name) {
-        const key = (f.tray_color ?? "NOCOLOR").slice(0, 6).toUpperCase();
-        const existing = seen.get(key);
-        if (!existing || f.remain > existing.remain) seen.set(key, f);
-      } else {
-        unknown.push(f);
-      }
-    }
-    return { known: [...seen.values()], unknown };
+    return dedupeFilamentColors(
+      filtered,
+      (f) => f.tray_color,
+      (f) => f.spool_color_name,
+      (f) => f.remain,
+    );
   }
 
   const overrideFilamentToFullMutation =
