@@ -108,6 +108,22 @@ function formatDuration(seconds: number): string {
   return `${m}m`;
 }
 
+function splitFilamentColors(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (trimmed.includes(";") || trimmed.includes(",")) {
+    return trimmed
+      .split(/[;,]/)
+      .map((s) => s.replace(/^#/, "").trim())
+      .filter(Boolean);
+  }
+  const clean = trimmed.replace(/^#/, "");
+  const chunks: string[] = [];
+  for (let i = 0; i + 6 <= clean.length; i += 6) {
+    chunks.push(clean.slice(i, i + 6));
+  }
+  return chunks.length > 0 ? chunks : [clean];
+}
+
 function ColorSwatch({ hex }: { hex: string }) {
   return (
     <span
@@ -254,9 +270,10 @@ function QueueItemRow({
             <span className="flex items-center gap-1">
               <Package className="h-3 w-3" />
               {item.filament_type}
-              {item.filament_color && (
-                <ColorSwatch hex={item.filament_color.replace("#", "")} />
-              )}
+              {item.filament_color &&
+                splitFilamentColors(item.filament_color).map((hex, i) => (
+                  <ColorSwatch key={i} hex={hex} />
+                ))}
             </span>
           ) : null}
           {item.filament_used_grams != null && (
