@@ -318,10 +318,7 @@ function QueueItemRow({
             </div>
             <ul className="space-y-0.5 pl-[18px]">
               {item.printerHmsErrors!.map((e, i) => (
-                <li
-                  key={i}
-                  className="flex gap-1.5 text-xs text-destructive"
-                >
+                <li key={i} className="flex gap-1.5 text-xs text-destructive">
                   <span className="font-mono shrink-0">{e.code}</span>
                   <span>{e.description}</span>
                 </li>
@@ -739,70 +736,74 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
         </div>
       )}
 
-      {!isLoading && queueItems && queueItems.length > 0 && (() => {
-        const active = [...queueItems]
-          .filter((i) => i.status === "printing" || i.status === "pending")
-          .sort((a, b) => {
-            const rank = (s: string | null | undefined) =>
-              s?.toLowerCase() === "printing" ? 0 : 1;
-            const ra = rank(a.status);
-            const rb = rank(b.status);
-            if (ra !== rb) return ra - rb;
-            return (a.position ?? 0) - (b.position ?? 0);
-          });
-        // Completed/failed/skipped/cancelled jobs are done — auto-collapse
-        // them behind a toggle so the panel stays focused on what's live.
-        const history = [...queueItems]
-          .filter((i) => i.status !== "printing" && i.status !== "pending")
-          .sort((a, b) =>
-            (b.completed_at ?? b.created_at ?? "").localeCompare(
-              a.completed_at ?? a.created_at ?? "",
-            ),
+      {!isLoading &&
+        queueItems &&
+        queueItems.length > 0 &&
+        (() => {
+          const active = [...queueItems]
+            .filter((i) => i.status === "printing" || i.status === "pending")
+            .sort((a, b) => {
+              const rank = (s: string | null | undefined) =>
+                s?.toLowerCase() === "printing" ? 0 : 1;
+              const ra = rank(a.status);
+              const rb = rank(b.status);
+              if (ra !== rb) return ra - rb;
+              return (a.position ?? 0) - (b.position ?? 0);
+            });
+          // Completed/failed/skipped/cancelled jobs are done — auto-collapse
+          // them behind a toggle so the panel stays focused on what's live.
+          const history = [...queueItems]
+            .filter((i) => i.status !== "printing" && i.status !== "pending")
+            .sort((a, b) =>
+              (b.completed_at ?? b.created_at ?? "").localeCompare(
+                a.completed_at ?? a.created_at ?? "",
+              ),
+            );
+
+          const rowProps = {
+            connectivity,
+            onStop: (id: number) => stopMutation.mutate({ itemId: id }),
+            onCancel: (id: number) => cancelMutation.mutate({ itemId: id }),
+            onDelete: (id: number) => deleteMutation.mutate({ itemId: id }),
+            onResolveFilamentShort: (id: number) => setFilamentShortItemId(id),
+          };
+
+          return (
+            <div>
+              {active.length === 0 && history.length > 0 && (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  No active jobs
+                </p>
+              )}
+              {active.map((item) => (
+                <QueueItemRow key={item.id} item={item} {...rowProps} />
+              ))}
+
+              {history.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 w-full text-xs text-muted-foreground hover:text-foreground py-2"
+                    onClick={() => setShowHistory((v) => !v)}
+                  >
+                    {showHistory ? (
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    )}
+                    {showHistory ? "Hide" : "Show"} {history.length} finished
+                    job
+                    {history.length === 1 ? "" : "s"}
+                  </button>
+                  {showHistory &&
+                    history.map((item) => (
+                      <QueueItemRow key={item.id} item={item} {...rowProps} />
+                    ))}
+                </>
+              )}
+            </div>
           );
-
-        const rowProps = {
-          connectivity,
-          onStop: (id: number) => stopMutation.mutate({ itemId: id }),
-          onCancel: (id: number) => cancelMutation.mutate({ itemId: id }),
-          onDelete: (id: number) => deleteMutation.mutate({ itemId: id }),
-          onResolveFilamentShort: (id: number) => setFilamentShortItemId(id),
-        };
-
-        return (
-          <div>
-            {active.length === 0 && history.length > 0 && (
-              <p className="text-sm text-muted-foreground text-center py-6">
-                No active jobs
-              </p>
-            )}
-            {active.map((item) => (
-              <QueueItemRow key={item.id} item={item} {...rowProps} />
-            ))}
-
-            {history.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 w-full text-xs text-muted-foreground hover:text-foreground py-2"
-                  onClick={() => setShowHistory((v) => !v)}
-                >
-                  {showHistory ? (
-                    <ChevronUp className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  )}
-                  {showHistory ? "Hide" : "Show"} {history.length} finished job
-                  {history.length === 1 ? "" : "s"}
-                </button>
-                {showHistory &&
-                  history.map((item) => (
-                    <QueueItemRow key={item.id} item={item} {...rowProps} />
-                  ))}
-              </>
-            )}
-          </div>
-        );
-      })()}
+        })()}
     </div>
   );
 }

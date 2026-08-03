@@ -321,10 +321,16 @@ export const printQueueRouter = router({
         // because its assigned printer has a real problem. Surface that
         // printer's AMS/HMS errors directly on the row instead of a "held"
         // state, so it's clear the job is blocked by hardware, not policy.
+        // Bambuddy's raw status casing isn't guaranteed lowercase (the UI
+        // itself lowercases before comparing) — normalise here too.
         const pendingPrinterIds = [
           ...new Set(
             items
-              .filter((i) => i.status === "pending" && i.printer_id != null)
+              .filter(
+                (i) =>
+                  i.status?.toLowerCase() === "pending" &&
+                  i.printer_id != null,
+              )
               .map((i) => i.printer_id!),
           ),
         ];
@@ -354,7 +360,8 @@ export const printQueueRouter = router({
             notionProjectName: sub?.notionProjectName ?? null,
             personalUse: sub?.personalUse ?? false,
             printerHmsErrors:
-              item.status === "pending" && item.printer_id != null
+              item.status?.toLowerCase() === "pending" &&
+              item.printer_id != null
                 ? (hmsErrorsByPrinterId.get(item.printer_id) ?? null)
                 : null,
           };
