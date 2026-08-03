@@ -498,11 +498,18 @@ export function PrintJobModal({
 
   const availablePrinterSlots = printerAms?.slots ?? [];
 
-  // Color options for a type when targeting a specific printer
+  // Color options for a type when targeting a specific printer, deduplicated
+  // by colour hex (an AMS can have the same colour loaded in multiple slots)
   function getPrinterColorsForType(reqType: string) {
-    return availablePrinterSlots.filter((s) =>
+    const filtered = availablePrinterSlots.filter((s) =>
       filamentTypeMatches(s.trayType, reqType),
     );
+    const seen = new Map<string, (typeof filtered)[0]>();
+    for (const s of filtered) {
+      const key = (s.trayColor ?? "NOCOLOR").slice(0, 6).toUpperCase();
+      if (!seen.has(key)) seen.set(key, s);
+    }
+    return [...seen.values()];
   }
 
   function filamentTypeMatches(
@@ -532,7 +539,15 @@ export function PrintJobModal({
     return [...seen.values()];
   }
 
-  function selectColor(slotIdx: number, colorHex: string, colorName?: string) {
+  const overrideFilamentToFullMutation =
+    trpc.printQueue.overrideFilamentToFull.useMutation();
+
+  function selectColor(
+    slotIdx: number,
+    colorHex: string,
+    filamentType: string,
+    colorName?: string,
+  ) {
     setSlotSelections((prev) => {
       const next = new Map(prev);
       const current = next.get(slotIdx);
@@ -540,6 +555,9 @@ export function PrintJobModal({
         next.set(slotIdx, { mode: "any" });
       } else {
         next.set(slotIdx, { mode: "color", colorHex, colorName });
+        // Filament remaining is not tracked for print blocking — reset every
+        // matching spool (any printer) to 100% as soon as it's chosen.
+        overrideFilamentToFullMutation.mutate({ filamentType, colorHex });
       }
       return next;
     });
@@ -1141,11 +1159,6 @@ export function PrintJobModal({
                                           : (opt as (typeof printerColors)[0])
                                               .trayIdName;
                                         const name = subBrands ?? idName;
-                                        const remain = isMultiPrinter
-                                          ? (opt as (typeof multiColors)[0])
-                                              .remain
-                                          : (opt as (typeof printerColors)[0])
-                                              .remain;
 
                                         const normalHex = hex
                                           .slice(0, 6)
@@ -1169,6 +1182,7 @@ export function PrintJobModal({
                                               selectColor(
                                                 slotIdx,
                                                 hex,
+                                                type,
                                                 name ?? undefined,
                                               )
                                             }
@@ -1190,9 +1204,6 @@ export function PrintJobModal({
                                                   {idName}
                                                 </span>
                                               )}
-                                            </span>
-                                            <span className="opacity-60 shrink-0 text-xs">
-                                              {remain}%
                                             </span>
                                             {isSelected && (
                                               <Check className="h-3.5 w-3.5 shrink-0" />
