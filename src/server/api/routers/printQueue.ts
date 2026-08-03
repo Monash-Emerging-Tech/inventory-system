@@ -442,7 +442,10 @@ export const printQueueRouter = router({
         if (colorConstraints.length > 0 && targeting.mode === "printer") {
           try {
             const status = await getBambuddyPrinterStatus(targeting.printerId);
-            const slots = buildAmsSlots(status.ams);
+            const slots = [
+              ...buildAmsSlots(status.ams),
+              ...buildExternalSlots(status.vt_tray),
+            ];
             const constraints: FilamentConstraint[] = colorConstraints;
             const matches = matchFilaments(constraints, slots);
             const result = buildAmsMapping(filamentConstraints.length, matches);
