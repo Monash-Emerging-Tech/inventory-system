@@ -286,6 +286,15 @@ export function PrintJobModal({
     }
   }, [archiveId, archives, printers]);
 
+  // Auto-open the project picker once a print is uploaded or picked, unless
+  // a project has already been chosen
+  useEffect(() => {
+    if ((uploadFile || archiveId) && !selectedProjectId) {
+      setProjectComboOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadFile, archiveId]);
+
   // Initialise per-slot selections when requirements load
   useEffect(() => {
     if (filamentReqs && filamentReqs.length > 0 && slotSelections.size === 0) {
@@ -679,10 +688,6 @@ export function PrintJobModal({
                     </Command>
                   </PopoverContent>
                 </Popover>
-                <p className="text-xs text-muted-foreground">
-                  Chosen before upload — it's baked into the file name sent to
-                  the printer.
-                </p>
               </div>
 
               <div className="flex gap-1 rounded-md border border-border p-1 bg-muted/50">
@@ -881,7 +886,7 @@ export function PrintJobModal({
           {step === "targeting" && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Printer targeting</Label>
+                <Label>Targeting Mode</Label>
                 <Select
                   value={targetingMode}
                   onValueChange={(v) => setTargetingMode(v as TargetingMode)}
@@ -890,17 +895,15 @@ export function PrintJobModal({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="model">
-                      Specific printer model
-                    </SelectItem>
-                    <SelectItem value="printer">Specific printer</SelectItem>
+                    <SelectItem value="model">Printer Model</SelectItem>
+                    <SelectItem value="printer">Specific Printer</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               {targetingMode === "model" && (
                 <div className="space-y-2">
-                  <Label>Printer model</Label>
+                  <Label>Model</Label>
                   {printersLoading ? (
                     <Skeleton className="h-9 w-full" />
                   ) : (
