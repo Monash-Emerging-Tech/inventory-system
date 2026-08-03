@@ -1344,33 +1344,44 @@ export function PrintJobModal({
                                               {isSelected && (
                                                 <Check className="h-3.5 w-3.5 shrink-0" />
                                               )}
-                                              <button
-                                                type="button"
-                                                title={
-                                                  name
-                                                    ? "Edit colour"
-                                                    : "Name this colour"
-                                                }
-                                                className={`shrink-0 p-1 rounded-sm hover:bg-black/10 dark:hover:bg-white/10 ${
-                                                  isSelected
-                                                    ? ""
-                                                    : "text-muted-foreground"
-                                                }`}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  openNamingPopup(
-                                                    type,
-                                                    hex,
-                                                    name ?? null,
-                                                  );
-                                                }}
-                                              >
-                                                {name ? (
+                                              {name ? (
+                                                <button
+                                                  type="button"
+                                                  title="Edit colour"
+                                                  className={`shrink-0 p-1 rounded-sm hover:bg-black/10 dark:hover:bg-white/10 ${
+                                                    isSelected
+                                                      ? ""
+                                                      : "text-muted-foreground"
+                                                  }`}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openNamingPopup(
+                                                      type,
+                                                      hex,
+                                                      name,
+                                                    );
+                                                  }}
+                                                >
                                                   <Pencil className="h-3.5 w-3.5" />
-                                                ) : (
+                                                </button>
+                                              ) : (
+                                                <button
+                                                  type="button"
+                                                  title="Name this colour"
+                                                  className="shrink-0 flex items-center gap-1 rounded-sm bg-amber-500 px-2 py-1 text-xs font-medium text-white hover:bg-amber-600"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openNamingPopup(
+                                                      type,
+                                                      hex,
+                                                      null,
+                                                    );
+                                                  }}
+                                                >
                                                   <Tag className="h-3.5 w-3.5" />
-                                                )}
-                                              </button>
+                                                  Choose Colour
+                                                </button>
+                                              )}
                                             </div>
                                           );
                                         })}
