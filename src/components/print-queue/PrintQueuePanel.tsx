@@ -312,7 +312,7 @@ function QueueItemRow({
             <div className="flex items-start gap-1.5 text-xs text-destructive font-medium">
               <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
               <span>
-                {printerLabel} has an error — this job cannot start until it's
+                {printerLabel} has an error - this job cannot start until it's
                 resolved.
               </span>
             </div>

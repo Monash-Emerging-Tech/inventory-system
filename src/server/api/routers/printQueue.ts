@@ -328,8 +328,7 @@ export const printQueueRouter = router({
             items
               .filter(
                 (i) =>
-                  i.status?.toLowerCase() === "pending" &&
-                  i.printer_id != null,
+                  i.status?.toLowerCase() === "pending" && i.printer_id != null,
               )
               .map((i) => i.printer_id!),
           ),
