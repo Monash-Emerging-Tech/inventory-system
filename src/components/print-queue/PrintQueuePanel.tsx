@@ -19,7 +19,7 @@ import {
   SkipForward,
   Wrench,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
 
@@ -581,6 +581,35 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
     trpc.printQueue.listPrinterConnectivity.useQuery(undefined, {
       refetchInterval: 30_000,
     });
+
+  // Filament remaining is not tracked for print blocking. If bambuddy still
+  // flags an item as filament_short (e.g. remaining drifted down again
+  // between queuing and starting), silently top up every matching spool
+  // back to 100% so bambuddy's own retry picks it up — no manual
+  // "Start anyway" click required.
+  const healedFilamentShortItemIds = useRef<Set<number>>(new Set());
+  const overrideFilamentToFullMutation =
+    trpc.printQueue.overrideFilamentToFull.useMutation();
+
+  useEffect(() => {
+    for (const item of queueItems ?? []) {
+      if (!item.filament_short) {
+        healedFilamentShortItemIds.current.delete(item.id);
+        continue;
+      }
+      if (healedFilamentShortItemIds.current.has(item.id)) continue;
+      if (!item.filament_overrides?.length) continue;
+
+      healedFilamentShortItemIds.current.add(item.id);
+      for (const override of item.filament_overrides) {
+        overrideFilamentToFullMutation.mutate({
+          filamentType: override.type,
+          colorHex: override.color,
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueItems]);
 
   const filamentShortQuery = trpc.printQueue.getFilamentShortInfo.useQuery(
     { itemId: filamentShortItemId! },
