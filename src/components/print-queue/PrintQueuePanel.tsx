@@ -25,6 +25,10 @@ import { useState, useEffect, useRef } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
 import { PrintRatingDialog } from "@/components/print/PrintRatingDialog";
+import {
+  FilamentColorPicker,
+  type FilamentColorCandidate,
+} from "@/components/print-queue/FilamentColorPicker";
 
 type QueueItem =
   inferRouterOutputs<AppRouter>["printQueue"]["listQueue"][number];
@@ -108,6 +112,22 @@ function formatDuration(seconds: number): string {
   return `${m}m`;
 }
 
+function splitFilamentColors(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (trimmed.includes(";") || trimmed.includes(",")) {
+    return trimmed
+      .split(/[;,]/)
+      .map((s) => s.replace(/^#/, "").trim())
+      .filter(Boolean);
+  }
+  const clean = trimmed.replace(/^#/, "");
+  const chunks: string[] = [];
+  for (let i = 0; i + 6 <= clean.length; i += 6) {
+    chunks.push(clean.slice(i, i + 6));
+  }
+  return chunks.length > 0 ? chunks : [clean];
+}
+
 function ColorSwatch({ hex }: { hex: string }) {
   return (
     <span
@@ -131,6 +151,7 @@ function QueueItemRow({
   onCancel,
   onDelete,
   onResolveFilamentShort,
+  colourUnavailable,
   needsPlateClear,
   onConfirmPlateClear,
 }: {
@@ -140,6 +161,7 @@ function QueueItemRow({
   onCancel: (id: number) => void;
   onDelete: (id: number) => void;
   onResolveFilamentShort: (id: number) => void;
+  colourUnavailable?: boolean;
   needsPlateClear?: boolean;
   onConfirmPlateClear?: () => void;
 }) {
@@ -254,9 +276,10 @@ function QueueItemRow({
             <span className="flex items-center gap-1">
               <Package className="h-3 w-3" />
               {item.filament_type}
-              {item.filament_color && (
-                <ColorSwatch hex={item.filament_color.replace("#", "")} />
-              )}
+              {item.filament_color &&
+                splitFilamentColors(item.filament_color).map((hex, i) => (
+                  <ColorSwatch key={i} hex={hex} />
+                ))}
             </span>
           ) : null}
           {item.filament_used_grams != null && (
@@ -347,24 +370,29 @@ function QueueItemRow({
           </div>
         )}
 
-        {/* Filament short */}
-        {item.filament_short && isPending && !item.waiting_reason && (
-          <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-            <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
-            <span className="flex-1">
-              Not enough filament on the assigned spool to complete this print.
-              Replace or top up the spool, then the job will start
-              automatically.
-            </span>
-            <button
-              className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 transition-colors"
-              onClick={() => onResolveFilamentShort(item.id)}
-            >
-              <Wrench className="h-2.5 w-2.5" />
-              Start anyway
-            </button>
-          </div>
-        )}
+        {/* Filament short - resolved automatically in the background (see
+            autoResolveFilamentShort). Once that comes back "unavailable"
+            the colour genuinely isn't loaded on any printer, so ask the
+            user to pick a different one instead of silently retrying. */}
+        {item.filament_short &&
+          isPending &&
+          !item.waiting_reason &&
+          colourUnavailable && (
+            <div className="flex items-start gap-1.5 text-xs text-destructive">
+              <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
+              <span className="flex-1">
+                That filament colour isn't loaded on any printer right now.
+                Choose a different colour to continue.
+              </span>
+              <button
+                className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-destructive/10 hover:bg-destructive/20 text-destructive transition-colors"
+                onClick={() => onResolveFilamentShort(item.id)}
+              >
+                <Wrench className="h-2.5 w-2.5" />
+                Choose new colour
+              </button>
+            </div>
+          )}
 
         {/* Been jumped explanation */}
         {item.been_jumped && isPending && (
@@ -460,11 +488,16 @@ function FilamentShortDialogContent({
 }: {
   dialog: FilamentShortDialog;
   isPending: boolean;
-  onConfirm: (spoolId: number) => void;
+  onConfirm: (candidate: {
+    printerId: number;
+    filamentType: string;
+    colorHex: string;
+  }) => void;
   onClose: () => void;
 }) {
-  const [selectedSpoolId, setSelectedSpoolId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<FilamentColorCandidate | null>(null);
   const info = dialog.info;
+  const utils = trpc.useUtils();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -475,7 +508,7 @@ function FilamentShortDialogContent({
             <p className="font-semibold text-sm">
               {info.status === "found"
                 ? "Confirm filament override"
-                : "Select AMS slot"}
+                : "Choose a colour"}
             </p>
 
             {info.status === "found" && (
@@ -502,58 +535,46 @@ function FilamentShortDialogContent({
               </>
             )}
 
-            {info.status === "no_match" && (
+            {info.status === "choose_colour" && (
               <>
-                <p className="text-xs text-muted-foreground mt-1">
-                  No{" "}
+                <p className="text-xs text-muted-foreground mt-1 mb-2">
                   {info.filamentColor ? (
                     <>
-                      <ColorSwatch hex={info.filamentColor} />{" "}
+                      The original <ColorSwatch hex={info.filamentColor} />{" "}
+                      colour
                     </>
-                  ) : null}
-                  {info.filamentType ?? "matching"} filament found on{" "}
-                  <strong>{info.printerName}</strong>. Select which AMS slot
-                  holds the correct filament:
+                  ) : (
+                    "The original colour"
+                  )}{" "}
+                  isn't loaded on any printer. Choose a colour below - same
+                  picker as adding a print to the queue:
                 </p>
-                <div className="mt-3 space-y-1.5 max-h-48 overflow-y-auto">
-                  {info.slots.length === 0 && (
-                    <p className="text-xs text-muted-foreground italic">
-                      No spools loaded on this printer.
-                    </p>
-                  )}
-                  {info.slots.map((slot) => (
-                    <label
-                      key={slot.spoolId}
-                      className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-xs transition-colors ${
-                        selectedSpoolId === slot.spoolId
-                          ? "border-amber-500 bg-amber-50 dark:bg-amber-950/30"
-                          : "border-border hover:bg-muted/50"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="slot"
-                        value={slot.spoolId}
-                        checked={selectedSpoolId === slot.spoolId}
-                        onChange={() => setSelectedSpoolId(slot.spoolId)}
-                        className="accent-amber-500"
-                      />
-                      {slot.colorHex && <ColorSwatch hex={slot.colorHex} />}
-                      <span className="flex-1">
-                        <span className="font-medium">
-                          AMS {slot.amsId + 1} · Slot {slot.trayId + 1}
-                        </span>
-                        <span className="text-muted-foreground ml-1">
-                          {slot.material}
-                          {slot.colorName ? ` - ${slot.colorName}` : ""}
-                        </span>
-                      </span>
-                      <span className="text-muted-foreground shrink-0">
-                        {slot.remaining.toFixed(0)}g
-                      </span>
-                    </label>
-                  ))}
-                </div>
+                <FilamentColorPicker
+                  type={info.filamentType ?? "filament"}
+                  candidates={info.candidates}
+                  emptyMessage={`No ${info.filamentType ?? "matching"} spools loaded on any printer.`}
+                  selected={
+                    selected
+                      ? {
+                          mode: "color",
+                          colorHex: selected.colorHex ?? "",
+                          colorName: selected.colorName,
+                        }
+                      : { mode: "any" }
+                  }
+                  onSelectAny={() => {
+                    const best = [...info.candidates].sort(
+                      (a, b) => b.remaining - a.remaining,
+                    )[0];
+                    setSelected(best ?? null);
+                  }}
+                  onSelectColor={(candidate) => setSelected(candidate)}
+                  onColorsChanged={() =>
+                    void utils.printQueue.getFilamentShortInfo.invalidate({
+                      itemId: dialog.itemId,
+                    })
+                  }
+                />
               </>
             )}
           </div>
@@ -568,12 +589,22 @@ function FilamentShortDialogContent({
             className="bg-amber-500 hover:bg-amber-600 text-white"
             disabled={
               isPending ||
-              (info.status === "no_match" && selectedSpoolId === null)
+              (info.status === "choose_colour" && selected === null)
             }
             onClick={() => {
-              const spoolId =
-                info.status === "found" ? info.spoolId : selectedSpoolId!;
-              onConfirm(spoolId);
+              if (info.status === "found") {
+                onConfirm({
+                  printerId: info.printerId,
+                  filamentType: info.filamentType,
+                  colorHex: info.colorHex ?? "",
+                });
+              } else if (selected) {
+                onConfirm({
+                  printerId: selected.printerId,
+                  filamentType: selected.material,
+                  colorHex: selected.colorHex ?? "",
+                });
+              }
             }}
           >
             Yes, start anyway
@@ -617,12 +648,37 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
 
   // Filament remaining is not tracked for print blocking. If bambuddy still
   // flags an item as filament_short (e.g. remaining drifted down again
-  // between queuing and starting), silently top up every matching spool
-  // back to 100% so bambuddy's own retry picks it up - no manual
-  // "Start anyway" click required.
+  // between queuing and starting), resolve it automatically - no manual
+  // "Start anyway" click required. The colour is topped up to 100% if it's
+  // loaded on the assigned printer, the job is reassigned if it's loaded on
+  // a different printer, or the item is flagged "unavailable" so the user
+  // can pick a different colour.
   const healedFilamentShortItemIds = useRef<Set<number>>(new Set());
-  const overrideFilamentToFullMutation =
-    trpc.printQueue.overrideFilamentToFull.useMutation();
+  const [unavailableColourItemIds, setUnavailableColourItemIds] = useState<
+    Set<number>
+  >(new Set());
+  const autoResolveFilamentShortMutation =
+    trpc.printQueue.autoResolveFilamentShort.useMutation({
+      onSuccess: (data, variables) => {
+        setUnavailableColourItemIds((prev) => {
+          const next = new Set(prev);
+          if (data.status === "unavailable") {
+            next.add(variables.itemId);
+          } else {
+            next.delete(variables.itemId);
+          }
+          return next;
+        });
+        if (data.status === "resolved_elsewhere") {
+          toast.success(
+            `Matching filament found on ${data.printerName} - job reassigned`,
+          );
+        }
+        if (data.status !== "unavailable") {
+          invalidate();
+        }
+      },
+    });
 
   useEffect(() => {
     for (const item of queueItems ?? []) {
@@ -631,15 +687,9 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
         continue;
       }
       if (healedFilamentShortItemIds.current.has(item.id)) continue;
-      if (!item.filament_overrides?.length) continue;
 
       healedFilamentShortItemIds.current.add(item.id);
-      for (const override of item.filament_overrides) {
-        overrideFilamentToFullMutation.mutate({
-          filamentType: override.type,
-          colorHex: override.color,
-        });
-      }
+      autoResolveFilamentShortMutation.mutate({ itemId: item.id });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queueItems]);
@@ -734,12 +784,12 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
         <FilamentShortDialogContent
           dialog={filamentShortDialog}
           isPending={overrideFilamentShortMutation.isPending}
-          onConfirm={(spoolId) =>
+          onConfirm={(candidate) =>
             overrideFilamentShortMutation.mutate({
               itemId: filamentShortDialog.itemId,
-              printerId: filamentShortDialog.info.printerId,
-              spoolId,
-              requiredGrams: filamentShortDialog.info.required,
+              printerId: candidate.printerId,
+              filamentType: candidate.filamentType,
+              colorHex: candidate.colorHex,
             })
           }
           onClose={() => setFilamentShortDialog(null)}
@@ -860,7 +910,12 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
                   </p>
                 )}
               {active.map((item) => (
-                <QueueItemRow key={item.id} item={item} {...rowProps} />
+                <QueueItemRow
+                  key={item.id}
+                  item={item}
+                  {...rowProps}
+                  colourUnavailable={unavailableColourItemIds.has(item.id)}
+                />
               ))}
 
               {plateClearItems.map((item) => (
@@ -868,6 +923,7 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
                   key={item.id}
                   item={item}
                   {...rowProps}
+                  colourUnavailable={unavailableColourItemIds.has(item.id)}
                   needsPlateClear
                   onConfirmPlateClear={() =>
                     item.printer_id != null &&

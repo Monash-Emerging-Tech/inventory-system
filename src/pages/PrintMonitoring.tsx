@@ -407,7 +407,11 @@ function AmsSlotEditDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit AMS Slot {slot.tray.id + 1}</DialogTitle>
+          <DialogTitle>
+            {slot.amsId === 255
+              ? `Edit External Spool ${slot.tray.id + 1}`
+              : `Edit AMS Slot ${slot.tray.id + 1}`}
+          </DialogTitle>
           <DialogDescription>
             Update filament info and inventory assignment for this slot.
           </DialogDescription>
@@ -735,7 +739,11 @@ function PrinterDetail({
 
   const slotAssignmentsQuery = trpc.print.listSlotAssignments.useQuery(
     { bambuddyId: status.bambuddyId! },
-    { enabled: status.bambuddyId != null && status.amsExists },
+    {
+      enabled:
+        status.bambuddyId != null &&
+        (status.amsExists || status.vtTray.length > 0),
+    },
   );
   // Same colour-name resolution as the print queue's filament picker - the
   // assigned spool's name is the only trustworthy source, never the raw AMS
@@ -1123,7 +1131,7 @@ function PrinterDetail({
               <div key={unit.id} className="space-y-2">
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                   <span className="font-medium text-foreground">
-                    Unit {unit.id + 1}
+                    {unit.is_ams_ht ? "AMS HT" : `Unit ${unit.id + 1}`}
                   </span>
                   {unit.humidity != null ? (
                     <span>Humidity: {unit.humidity}%</span>
@@ -1184,6 +1192,70 @@ function PrinterDetail({
                 </div>
               </div>
             ))}
+          </div>
+        ) : null}
+
+        {status.vtTray.length > 0 ? (
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold">External Spool</h4>
+              {status.bambuddyId != null ? (
+                <span className="text-[10px] text-muted-foreground">
+                  Click to edit filament
+                </span>
+              ) : null}
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {status.vtTray.map((tray) => {
+                const color = parseTrayColor(tray.tray_color);
+                const hasFilament = !!tray.tray_type;
+                const isEmpty = !hasFilament;
+                const localTrayId = tray.id - 254;
+                const colorName =
+                  slotColorNameMap.get(`255:${localTrayId}`) ?? null;
+                const canEdit = status.bambuddyId != null;
+                return (
+                  <div
+                    key={tray.id}
+                    className={`group relative flex flex-col items-center gap-1 rounded-lg border p-2 ${isEmpty ? "opacity-40" : ""} ${canEdit ? "cursor-pointer hover:border-primary/50 hover:bg-secondary/30 transition-colors" : ""}`}
+                    onClick={
+                      canEdit
+                        ? () =>
+                            setEditingSlot({
+                              bambuddyId: status.bambuddyId!,
+                              amsId: 255,
+                              tray: { ...tray, id: localTrayId },
+                            })
+                        : undefined
+                    }
+                  >
+                    {canEdit ? (
+                      <Pencil className="absolute top-1 right-1 h-2.5 w-2.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    ) : null}
+                    <div
+                      className="h-7 w-7 rounded-full border border-border/60 shadow-sm"
+                      style={{
+                        background: color,
+                      }}
+                    />
+                    <span className="text-[10px] font-semibold text-center leading-tight truncate w-full text-center">
+                      {tray.tray_type ?? "-"}
+                    </span>
+                    <span
+                      className={`text-[9px] truncate w-full text-center leading-tight ${
+                        !hasFilament
+                          ? "text-muted-foreground"
+                          : colorName
+                            ? "text-muted-foreground"
+                            : "text-amber-600 dark:text-amber-400 font-medium"
+                      }`}
+                    >
+                      {!hasFilament ? "Empty" : (colorName ?? "Unknown")}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ) : null}
 
